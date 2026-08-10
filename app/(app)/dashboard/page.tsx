@@ -12,12 +12,19 @@ import { PAYMENT_METHOD_LABELS } from "@/lib/payments/methods";
 import { lowStockItems } from "@/lib/orders/stock";
 import { daysOverdue, overdueReturns, type OutItem } from "@/lib/assets/status";
 import { summarisePayables } from "@/lib/expenses/payables";
-import { manilaCalendarDate, todayInManila } from "@/lib/date";
+import { BOOKING_STATUS_LABELS, BOOKING_STATUS_TONES } from "@/lib/bookings/status";
 import { formatPeso, sumCentavos } from "@/lib/money";
 import { createClient } from "@/lib/supabase/server";
 import { Badge, Card, CardBody, CardHeader } from "@/components/ui/card";
 import { buttonClasses } from "@/components/ui/button";
-import { formatCalendarDate, formatDate } from "@/lib/date";
+import {
+  addCalendarDays,
+  formatCalendarDate,
+  formatDate,
+  formatTime,
+  manilaCalendarDate,
+  todayInManila,
+} from "@/lib/date";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -90,6 +97,55 @@ export default async function DashboardPage() {
     : { data: null };
 
   const payables = summarisePayables(payableRows ?? [], today);
+
+  // Today and the week ahead — the two questions somebody opening this
+  // page at 7am actually has (Spec 4.11).
+  const weekEnd = addCalendarDays(today, 7);
+
+  const { data: upcoming } = can(profile, "bookings.view")
+    ? await supabase
+        .from("bookings")
+        .select(
+          "id, booking_number, status, event_date, delivery_at, pickup_at, setup_at, event_address, customers(name)",
+        )
+        .neq("status", "cancelled")
+        .gte("event_date", today)
+        .lte("event_date", weekEnd)
+        .order("event_date", { ascending: true })
+    : { data: null };
+
+  const week = upcoming ?? [];
+  const todaysBookings = week.filter(
+    (booking) => booking.event_date === today,
+  );
+
+  // Money in versus money out, month to date.
+  const monthStart = `${today.slice(0, 7)}-01`;
+
+  const { data: monthPayments } = can(profile, "reports.financial.view")
+    ? await supabase
+        .from("payments")
+        .select("amount_centavos")
+        .eq("status", "verified")
+        .gte("paid_on", monthStart)
+        .lte("paid_on", today)
+    : { data: null };
+
+  const { data: monthExpenses } = can(profile, "reports.financial.view")
+    ? await supabase
+        .from("expenses")
+        .select("amount_centavos")
+        .eq("is_paid", true)
+        .gte("paid_on", monthStart)
+        .lte("paid_on", today)
+    : { data: null };
+
+  const monthIn = sumCentavos(
+    (monthPayments ?? []).map((payment) => payment.amount_centavos),
+  );
+  const monthOut = sumCentavos(
+    (monthExpenses ?? []).map((expense) => expense.amount_centavos),
+  );
 
   const lowStock = lowStockItems(
     (saleItems ?? []).map((item) => ({
@@ -198,6 +254,122 @@ export default async function DashboardPage() {
               ))}
             </ul>
           </CardBody>
+        </Card>
+      )}
+
+      {can(profile, "reports.financial.view") && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Card>
+            <CardBody>
+              <p className="text-sm text-ink-600">Collected this month</p>
+              <p className="tabular text-xl font-bold text-success-700">
+                {formatPeso(monthIn)}
+              </p>
+              <p className="text-xs text-ink-500">Verified payments only</p>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody>
+              <p className="text-sm text-ink-600">Spent this month</p>
+              <p className="tabular text-xl font-bold text-ink-900">
+                {formatPeso(monthOut)}
+              </p>
+            </CardBody>
+          </Card>
+          <Card>
+            <CardBody>
+              <p className="text-sm text-ink-600">Difference</p>
+              <p
+                className={`tabular text-xl font-bold ${
+                  monthIn - monthOut >= 0 ? "text-success-700" : "text-danger-600"
+                }`}
+              >
+                {formatPeso(monthIn - monthOut)}
+              </p>
+              <p className="text-xs text-ink-500">
+                <Link
+                  href="/reports?kind=profit-and-loss"
+                  className="font-medium text-brand-700 underline underline-offset-2"
+                >
+                  Full P&amp;L
+                </Link>
+              </p>
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
+      {week.length > 0 && (
+        <Card>
+          <CardHeader
+            title={
+              todaysBookings.length > 0
+                ? `Today — ${todaysBookings.length} ${todaysBookings.length === 1 ? "booking" : "bookings"}`
+                : "The week ahead"
+            }
+            description="Events in the next seven days, with what has to move."
+            action={
+              <Link
+                href="/calendar"
+                className={buttonClasses("secondary", "sm")}
+              >
+                Open calendar
+              </Link>
+            }
+          />
+          <ul className="divide-y divide-ink-200">
+            {week.slice(0, 8).map((booking) => (
+              <li key={booking.id} className="px-4 py-3 sm:px-6">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`/bookings/${booking.id}`}
+                      className="font-semibold text-brand-700 underline underline-offset-2"
+                    >
+                      {booking.customers?.name ?? "—"}
+                    </Link>
+                    <Badge tone={BOOKING_STATUS_TONES[booking.status]}>
+                      {BOOKING_STATUS_LABELS[booking.status]}
+                    </Badge>
+                    {booking.setup_at && <Badge tone="brand">Setup</Badge>}
+                  </div>
+                  <span
+                    className={`text-sm ${
+                      booking.event_date === today
+                        ? "font-semibold text-brand-700"
+                        : "text-ink-500"
+                    }`}
+                  >
+                    {booking.event_date === today
+                      ? "Today"
+                      : formatCalendarDate(booking.event_date)}
+                  </span>
+                </div>
+
+                <p className="mt-0.5 text-sm text-ink-600">
+                  {[
+                    booking.delivery_at
+                      ? `Deliver ${formatTime(booking.delivery_at)}`
+                      : null,
+                    booking.setup_at
+                      ? `Set up ${formatTime(booking.setup_at)}`
+                      : null,
+                    booking.pickup_at
+                      ? `Pick up ${formatTime(booking.pickup_at)}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "No times scheduled yet"}
+                </p>
+
+                {booking.event_address && (
+                  <p className="mt-0.5 truncate text-xs text-ink-500">
+                    {booking.event_address}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 

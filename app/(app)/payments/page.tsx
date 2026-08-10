@@ -96,9 +96,9 @@ export default async function PaymentsPage({
 
       <form
         action="/payments"
-        className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5 lg:items-end"
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
       >
-        <div>
+        <div className="min-w-40 sm:flex-1">
           <label htmlFor="payment-status" className="sr-only">
             Status
           </label>
@@ -117,7 +117,7 @@ export default async function PaymentsPage({
           </select>
         </div>
 
-        <div>
+        <div className="min-w-40 sm:flex-1">
           <label htmlFor="payment-method" className="sr-only">
             Method
           </label>
@@ -136,35 +136,44 @@ export default async function PaymentsPage({
           </select>
         </div>
 
-        <div>
-          <label htmlFor="payment-from" className="sr-only">
-            Paid from
-          </label>
-          <input
-            id="payment-from"
-            name="from"
-            type="date"
-            defaultValue={from ?? ""}
-            className={inputClasses}
-          />
-        </div>
+        {/* Flex rather than a grid: a grid's column count is fixed at
+            each breakpoint, which pushed the second date onto its own
+            row at every width between sm and lg. */}
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          <div className="min-w-36 flex-1">
+            <label htmlFor="payment-from" className="sr-only">
+              Paid from
+            </label>
+            <input
+              id="payment-from"
+              name="from"
+              type="date"
+              defaultValue={from ?? ""}
+              className={inputClasses}
+            />
+          </div>
 
-        <div>
-          <label htmlFor="payment-to" className="sr-only">
-            Paid to
-          </label>
-          <input
-            id="payment-to"
-            name="to"
-            type="date"
-            defaultValue={to ?? todayInManila()}
-            className={inputClasses}
-          />
-        </div>
+          <span className="text-sm text-ink-500" aria-hidden="true">
+            to
+          </span>
 
-        <button type="submit" className={buttonClasses("secondary")}>
-          Show
-        </button>
+          <div className="min-w-36 flex-1">
+            <label htmlFor="payment-to" className="sr-only">
+              Paid to
+            </label>
+            <input
+              id="payment-to"
+              name="to"
+              type="date"
+              defaultValue={to ?? todayInManila()}
+              className={inputClasses}
+            />
+          </div>
+
+          <button type="submit" className={buttonClasses("secondary")}>
+            Show
+          </button>
+        </div>
       </form>
 
       {error && (

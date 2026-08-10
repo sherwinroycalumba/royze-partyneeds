@@ -244,7 +244,13 @@ export const NAV_STRUCTURE: readonly NavEntry[] = [
           // the Owner records and pays them (Spec 3).
           permissions: ["expenses.manage", "expenses.categorize"],
         },
-        // Reports joins this group in Milestone 8.
+        {
+          href: "/reports",
+          label: "Reports",
+          icon: "reports",
+          // The Bookkeeper's whole job (Spec 3).
+          permissions: ["reports.financial.view"],
+        },
       ],
     },
   },

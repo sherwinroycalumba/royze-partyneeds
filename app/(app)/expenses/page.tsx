@@ -152,9 +152,9 @@ export default async function ExpensesPage({
 
       <form
         action="/expenses"
-        className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5 lg:items-end"
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
       >
-        <div>
+        <div className="min-w-40 sm:flex-1">
           <label htmlFor="expense-status" className="sr-only">
             Status
           </label>
@@ -170,7 +170,7 @@ export default async function ExpensesPage({
           </select>
         </div>
 
-        <div>
+        <div className="min-w-40 sm:flex-1">
           <label htmlFor="expense-category" className="sr-only">
             Category
           </label>
@@ -189,35 +189,44 @@ export default async function ExpensesPage({
           </select>
         </div>
 
-        <div>
-          <label htmlFor="expense-from" className="sr-only">
-            From
-          </label>
-          <input
-            id="expense-from"
-            name="from"
-            type="date"
-            defaultValue={from ?? ""}
-            className={inputClasses}
-          />
-        </div>
+        {/* Flex rather than a grid: a grid's column count is fixed at
+            each breakpoint, which pushed the second date onto its own
+            row at every width between sm and lg. */}
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          <div className="min-w-36 flex-1">
+            <label htmlFor="expense-from" className="sr-only">
+              From
+            </label>
+            <input
+              id="expense-from"
+              name="from"
+              type="date"
+              defaultValue={from ?? ""}
+              className={inputClasses}
+            />
+          </div>
 
-        <div>
-          <label htmlFor="expense-to" className="sr-only">
-            To
-          </label>
-          <input
-            id="expense-to"
-            name="to"
-            type="date"
-            defaultValue={to ?? ""}
-            className={inputClasses}
-          />
-        </div>
+          <span className="text-sm text-ink-500" aria-hidden="true">
+            to
+          </span>
 
-        <button type="submit" className={buttonClasses("secondary")}>
-          Show
-        </button>
+          <div className="min-w-36 flex-1">
+            <label htmlFor="expense-to" className="sr-only">
+              To
+            </label>
+            <input
+              id="expense-to"
+              name="to"
+              type="date"
+              defaultValue={to ?? ""}
+              className={inputClasses}
+            />
+          </div>
+
+          <button type="submit" className={buttonClasses("secondary")}>
+            Show
+          </button>
+        </div>
       </form>
 
       {error && (

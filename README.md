@@ -191,6 +191,7 @@ app/
     orders/        the quick-sale screen, the sales list, and receipts
     expenses/      spending, categories, and the payables queue
     assets/        the equipment register and overdue returns
+    reports/       the eight reports; export/ returns CSV or PDF
     settings/      business, payments, delivery, defaults,
                    agreement, expenses, users — one route each
 lib/
@@ -223,6 +224,14 @@ lib/
     status.ts      the owned/damaged/repair/written-off counts, the
                    availability breakdown, overdue returns (pure, tested)
     actions.ts     server actions ONLY
+  reports/
+    types.ts       one shape for every report, so CSV and PDF each
+                   need a single renderer
+    revenue.ts     cash-basis recognition and exact centavo splitting
+                   (pure, tested)
+    aging.ts       receivables buckets (pure, tested)
+    csv.ts         CSV serialising, escaping, formula guard (pure, tested)
+    build.ts       the eight report queries, server-only
   expenses/
     payables.ts    payable aging and category totals (pure, tested)
     validation.ts  what makes an expense savable (pure, tested)
@@ -250,6 +259,7 @@ lib/
     document.tsx   header, item table, totals, payment channels, footer
     quotation.tsx  the quotation document itself
     agreement.tsx  the rental agreement, with replacement values
+    report.tsx     one landscape renderer for all eight reports
     fonts/         Inter (SIL OFL 1.1) — see the note below
   settings/
     payment-accounts.ts  account rules and document ordering (pure, tested)
@@ -446,6 +456,27 @@ its own server action, separate from editing, so the Bookkeeper can reach the
 category and nothing else — the app-level half of an RLS policy that can only
 say "may update", not "may update this column".
 
+**A report is data, not markup.** Eight reports times two export formats is
+sixteen things to keep in step, so a report is described as sections of
+columns and rows and there is exactly one CSV serialiser and one PDF
+renderer. A ninth report is a query in `lib/reports/build.ts`, not another
+pair of exporters.
+
+**Revenue is split without losing centavos.** Cash-basis means revenue is
+recognised when a payment is verified — but a payment arrives as one number
+against a basket of rentals, sale items, a package, a delivery fee, and
+possibly a damage charge, and the P&L wants those apart. Each verified
+payment is allocated across the document's revenue mix by largest-remainder,
+so the parts sum to *exactly* the cash received. A half-paid booking
+recognises half of each source: the customer did not pay "for the chairs
+first". Overpayment is a credit, not income.
+
+**The CSV is written for a spreadsheet, not for a screen.** Money goes out as
+`1234.56`, because Excel cannot sum a peso sign and thousands separators turn
+a number into text. Any value that starts `=`, `+`, `-`, or `@` is prefixed
+with an apostrophe: a payee named `=cmd|…` is a real attack on whoever opens
+the file, and one character prevents it.
+
 **Payment accounts.** The business can hold any number of GCash, Maya, and
 bank accounts. Only the ones marked active print on quotations and rental
 agreements, so a closed account stays on file for reference without ever
@@ -516,7 +547,7 @@ Built in the milestone order from `Spec.md` §7.
 - [x] **5 — Rental agreements, payments, verification, 50% confirmation rule**
 - [x] **6 — Quick-sale orders + inventory decrement**
 - [x] **7 — Expenses, payables, asset monitoring**
-- [ ] 8 — Dashboard + reports + CSV/PDF export
+- [x] **8 — Dashboard + reports + CSV/PDF export**
 - [ ] 9 — Seed data, audit polish, deployment guide
 
 ### Accounting basis (for the bookkeeper)
