@@ -1,26 +1,117 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ─────────────────────────────────────────────────────────────
+   Royze Party Needs Rental — design tokens
+   Spec 2.1: orange brand palette on warm-gray neutrals.
+   Change the palette here and it changes everywhere (UI + PDFs).
+   ───────────────────────────────────────────────────────────── */
+@theme {
+  /* Brand — orange. brand-600/700 are the only shades safe for
+     text on white and for text-bearing buttons (WCAG AA). */
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
+  --color-brand-200: #fed7aa;
+  --color-brand-300: #fdba74;
+  --color-brand-400: #fb923c;
+  --color-brand-500: #f97316;
+  --color-brand-600: #ea580c;
+  --color-brand-700: #c2410c;
+  --color-brand-800: #9a3412;
+  --color-brand-900: #7c2d12;
+
+  /* Accent — amber, for secondary highlights and badges */
+  --color-accent-100: #fef3c7;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+  --color-accent-700: #b45309;
+
+  /* Neutrals — warm gray (stone) */
+  --color-ink-50: #fafaf9;
+  --color-ink-100: #f5f5f4;
+  --color-ink-200: #e7e5e4;
+  --color-ink-300: #d6d3d1;
+  --color-ink-400: #a8a29e;
+  --color-ink-500: #78716c;
+  --color-ink-600: #57534e;
+  --color-ink-700: #44403c;
+  --color-ink-800: #292524;
+  --color-ink-900: #1c1917;
+
+  /* Semantic — stays conventional for clarity (Spec 2.1).
+     Deliberately distinguishable from the orange brand color. */
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+
+  --color-warning-50: #fefce8;
+  --color-warning-100: #fef9c3;
+  --color-warning-600: #ca8a04;
+  --color-warning-700: #a16207;
+
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+
+  --color-info-50: #eff6ff;
+  --color-info-100: #dbeafe;
+  --color-info-600: #2563eb;
+  --color-info-700: #1d4ed8;
+
+  /* Surfaces */
+  --color-canvas: #fdfcfb;
+  --color-surface: #ffffff;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* This is a business tool used in bright daylight on phones and on a
+   desktop for reports; it commits to a single light theme so screen
+   output matches the printed PDFs. */
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-canvas);
+  color: var(--color-ink-800);
+}
+
+/* Numeric columns (money, quantities) line up when tabular. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle festive motif for the login screen and dashboard header —
+   tasteful confetti in brand tones, business tool first (Spec 2.1). */
+.confetti-bg {
+  background-color: var(--color-brand-50);
+  background-image:
+    radial-gradient(circle at 12% 18%, var(--color-brand-200) 0 5px, transparent 6px),
+    radial-gradient(circle at 84% 12%, var(--color-accent-400) 0 4px, transparent 5px),
+    radial-gradient(circle at 26% 78%, var(--color-brand-300) 0 4px, transparent 5px),
+    radial-gradient(circle at 68% 64%, var(--color-accent-100) 0 6px, transparent 7px),
+    radial-gradient(circle at 94% 82%, var(--color-brand-200) 0 3px, transparent 4px),
+    radial-gradient(circle at 46% 34%, var(--color-brand-100) 0 7px, transparent 8px);
+  background-repeat: no-repeat;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fade-in {
+    animation: fade-in 0.2s ease-out;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
