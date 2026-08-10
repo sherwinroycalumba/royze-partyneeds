@@ -81,6 +81,9 @@ Open **SQL Editor**, paste the contents of each file in order, and run:
 6. `0006_bookings.sql` — bookings, their line items and package
    component rows, the `reserved_quantities` availability aggregate,
    and `catalog_items.damaged_quantity`
+7. `0007_agreements_payments.sql` — rental agreements, payments and
+   their verification workflow, the `verified_paid_centavos` function,
+   and the trigger that keeps `bookings.agreement_signed` honest
 
 **Option B — Supabase CLI:**
 
@@ -173,8 +176,11 @@ app/
                    customers, suppliers
     quotations/    list, builder, detail; [id]/pdf is a route handler
                    that returns the PDF file itself
-    bookings/      list, builder, detail, the delivery-staff return sheet
+    bookings/      list, builder, detail, the delivery-staff return sheet,
+                   the agreement card, and the payments card;
+                   [id]/agreement returns the signed-document PDF
     calendar/      month, week, and day views of the whole team's work
+    payments/      the ledger and the owner's verification queue
     settings/      business, payments, delivery, defaults,
                    agreement, expenses, users — one route each
 lib/
@@ -200,6 +206,13 @@ lib/
     numbering.ts   QT-YYYY-#### shape and safe PDF filenames (pure, tested)
     validation.ts  what makes a quotation savable (pure, tested)
     actions.ts     server actions ONLY
+  agreements/
+    status.ts      Generated → Sent → Signed (pure, tested)
+    actions.ts     server actions ONLY
+  payments/
+    methods.ts     methods, the cash-auto-verifies rule, validation (pure, tested)
+    totals.ts      verified vs pending money (pure, tested)
+    actions.ts     server actions ONLY
   bookings/
     status.ts      the nine statuses and the Confirmed gate (pure, tested)
     availability.ts  stock maths and the overbooking verdict (pure, tested)
@@ -213,6 +226,7 @@ lib/
     theme.ts       A4 page styles, brand palette, bundled font
     document.tsx   header, item table, totals, payment channels, footer
     quotation.tsx  the quotation document itself
+    agreement.tsx  the rental agreement, with replacement values
     fonts/         Inter (SIL OFL 1.1) — see the note below
   settings/
     payment-accounts.ts  account rules and document ordering (pure, tested)
@@ -328,8 +342,29 @@ agreement is signed *and* verified payments cover the downpayment. Both
 blockers are reported at once, so staff chasing a customer know they want a
 signature *and* the deposit rather than discovering the second requirement
 after satisfying the first. The Owner may override with a logged reason.
-Until Milestone 5 lands agreements and payments, nothing is verified and the
-override is the only way through — that is the correct behaviour, not a gap.
+
+**Verified money and claimed money are never added together.** Cash is
+verified the moment it is recorded — the person recording it is holding it.
+GCash, Maya, and bank transfers are *claims* that money moved, and only the
+Owner can confirm one against the account. Until they do, the amount counts
+toward nothing: not the gate, not the balance, not revenue. This is enforced
+three deep — `initialStatus` decides it, `summarisePayments` keeps the two
+apart, and the database grants an UPDATE policy on `payments` to the Owner
+alone, so "only the Owner verifies" is true even against a hand-written API
+call. A rejected payment keeps its reason and stays on the money trail rather
+than vanishing.
+
+**`bookings.agreement_signed` has exactly one writer.** The flag the gate
+reads is maintained by a trigger on `rental_agreements`, not by any call
+site, so the booking and its agreement cannot disagree about whether
+something has been signed. Deleting an agreement clears the flag, or the gate
+would stay open on the strength of a document that no longer exists.
+
+**A signed document never changes.** The agreement snapshots its clauses and
+its figures at generation time. The owner can rewrite the template in
+Settings whenever they like; a document someone has put their name to keeps
+the wording they agreed to. Re-generating is refused once signed — that would
+discard evidence.
 
 **Package components are stored, not just summarised.** A backdrop package
 becomes a priced parent line plus one ₱0 component row per part. The
@@ -397,7 +432,7 @@ Built in the milestone order from `Spec.md` §7.
 - [x] **2 — Price catalog, customers, suppliers**
 - [x] **3 — Quotations + PDF engine**
 - [x] **4 — Bookings, availability engine, statuses, calendar**
-- [ ] 5 — Rental agreements, payments, verification, 50% confirmation rule
+- [x] **5 — Rental agreements, payments, verification, 50% confirmation rule**
 - [ ] 6 — Quick-sale orders + inventory decrement
 - [ ] 7 — Expenses, payables, asset monitoring
 - [ ] 8 — Dashboard + reports + CSV/PDF export

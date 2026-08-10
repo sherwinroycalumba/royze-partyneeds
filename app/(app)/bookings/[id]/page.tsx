@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getBusinessSettings, requirePermission } from "@/lib/auth/dal";
+import {
+  getBusinessSettings,
+  getPaymentAccounts,
+  requirePermission,
+} from "@/lib/auth/dal";
+import { missingChannelsWarning } from "@/lib/settings/payment-accounts";
 import { can } from "@/lib/auth/permissions";
 import {
   BOOKING_STATUS_LABELS,
@@ -14,12 +19,15 @@ import {
 import { RETURN_CONDITION_LABELS } from "@/lib/bookings/returns";
 import { deliveryFeeLabel, documentTotals, lineTotal } from "@/lib/documents/totals";
 import { formatCalendarDate, formatDateTime } from "@/lib/date";
-import { balanceDue, formatPeso } from "@/lib/money";
+import { formatPeso } from "@/lib/money";
+import { summarisePayments } from "@/lib/payments/totals";
 import { createClient } from "@/lib/supabase/server";
 import { Badge, Banner, Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { buttonClasses } from "@/components/ui/button";
 import { BookingStatusActions, ReturnForm, type ReturnLine } from "../booking-actions";
+import { AgreementCard } from "../agreement-card";
+import { PaymentsCard, type PaymentRow } from "../payments-card";
 
 export const metadata: Metadata = { title: "Booking" };
 
@@ -43,14 +51,32 @@ export default async function BookingPage({
 
   if (!booking) notFound();
 
-  const [{ data: items }, business] = await Promise.all([
-    supabase
-      .from("booking_items")
-      .select("*, catalog_items(replacement_value_centavos)")
-      .eq("booking_id", id)
-      .order("sort_order", { ascending: true }),
-    getBusinessSettings(),
-  ]);
+  const [
+    { data: items },
+    business,
+    paymentAccounts,
+    { data: agreement },
+    { data: payments },
+  ] = await Promise.all([
+      supabase
+        .from("booking_items")
+        .select("*, catalog_items(replacement_value_centavos)")
+        .eq("booking_id", id)
+        .order("sort_order", { ascending: true }),
+      getBusinessSettings(),
+      getPaymentAccounts(),
+      supabase
+        .from("rental_agreements")
+        .select("*")
+        .eq("booking_id", id)
+        .maybeSingle(),
+      supabase
+        .from("payments")
+        .select("*")
+        .eq("booking_id", id)
+        .order("paid_on", { ascending: false })
+        .order("created_at", { ascending: false }),
+    ]);
 
   const lines = items ?? [];
   const priced = lines.filter((line) => !line.is_component);
@@ -64,17 +90,22 @@ export default async function BookingPage({
     downpayment_percent: booking.downpayment_percent,
   });
 
-  // Payments arrive in Milestone 5; until then nothing is verified, so
-  // the balance is the whole total and the gate stays shut.
-  const verifiedPaid = 0;
+  // Verified payments only — a pending GCash claim counts toward
+  // nothing until the Owner has seen it in the account (Spec 4.7).
+  const summary = summarisePayments(payments ?? [], totals.total_centavos);
   const blockers = confirmationBlockers({
     agreement_signed: booking.agreement_signed,
-    verified_paid_centavos: verifiedPaid,
+    verified_paid_centavos: summary.verified_centavos,
     total_centavos: totals.total_centavos,
     downpayment_percent: booking.downpayment_percent,
   });
 
   const canManage = can(profile, "bookings.manage");
+  // Staff-only: the agreement PDF prints the payment channels, so an
+  // empty list means it goes to the client cash-only.
+  const channelsWarning = can(profile, "bookings.manage")
+    ? missingChannelsWarning(paymentAccounts)
+    : null;
   const canDeliver = can(profile, "delivery.update");
   const customer = booking.customers;
 
@@ -144,6 +175,8 @@ export default async function BookingPage({
           Cancelled — {booking.cancellation_reason}
         </Banner>
       )}
+
+      {channelsWarning && <Banner tone="warning">{channelsWarning}</Banner>}
 
       {booking.confirmation_override_reason && (
         <Banner tone="warning">
@@ -273,16 +306,12 @@ export default async function BookingPage({
               label={`${booking.downpayment_percent}% downpayment to confirm`}
               value={totals.downpayment_centavos}
             />
-            <Money label="Verified payments" value={verifiedPaid} />
             <Money
-              label="Balance due"
-              value={balanceDue(totals.total_centavos, verifiedPaid)}
+              label="Verified payments"
+              value={summary.verified_centavos}
             />
+            <Money label="Balance due" value={summary.balance_centavos} />
           </dl>
-          <p className="mt-2 text-xs text-ink-500">
-            Payments and the rental agreement arrive with the next milestone;
-            until then nothing is verified.
-          </p>
         </CardBody>
       </Card>
 
@@ -290,6 +319,35 @@ export default async function BookingPage({
       {canDeliver && canRecordReturn(booking.status) && returnLines.length > 0 && (
         <ReturnForm bookingId={booking.id} lines={returnLines} />
       )}
+
+      {/* ── Agreement and payments (Spec 4.5, 4.7) ──────────── */}
+      <AgreementCard
+        bookingId={booking.id}
+        agreement={
+          agreement
+            ? {
+                id: agreement.id,
+                agreement_number: agreement.agreement_number,
+                status: agreement.status,
+                sent_at: agreement.sent_at,
+                signed_at: agreement.signed_at,
+                signed_by_name: agreement.signed_by_name,
+                has_signed_copy: Boolean(agreement.signed_copy_path),
+              }
+            : null
+        }
+        canManage={canManage}
+      />
+
+      <PaymentsCard
+        bookingId={booking.id}
+        payments={(payments ?? []) as PaymentRow[]}
+        summary={summary}
+        totalCentavos={totals.total_centavos}
+        downpaymentCentavos={totals.downpayment_centavos}
+        canRecord={can(profile, "payments.record")}
+        isOwner={profile.role === "owner"}
+      />
 
       {/* ── Details ──────────────────────────────────────────── */}
       <Card>

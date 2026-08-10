@@ -8,19 +8,42 @@ import {
 } from "@/lib/auth/dal";
 import { activeAccounts } from "@/lib/settings/payment-accounts";
 import { can, ROLE_LABELS } from "@/lib/auth/permissions";
+import {
+  PAYMENT_METHOD_LABELS,
+} from "@/lib/payments/methods";
+import { formatPeso, sumCentavos } from "@/lib/money";
+import { createClient } from "@/lib/supabase/server";
 import { Badge, Card, CardBody, CardHeader } from "@/components/ui/card";
-import { formatDate } from "@/lib/date";
+import { buttonClasses } from "@/components/ui/button";
+import { formatCalendarDate, formatDate } from "@/lib/date";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 /**
- * Milestone 1 dashboard: identity, role, and a setup checklist.
- * Bookings, receivables, and stock widgets arrive with their modules.
+ * The dashboard grows a widget per milestone. Today: the setup
+ * checklist, and the Owner's pending-verification queue (Spec 4.7) —
+ * the one thing that blocks bookings from being confirmed.
  */
 export default async function DashboardPage() {
   const profile = await requireUser();
   const settings = await getBusinessSettings();
   const paymentAccounts = await getPaymentAccounts();
+
+  // Only the Owner can act on these, so only the Owner is shown them.
+  const supabase = await createClient();
+  const { data: pending } = can(profile, "payments.verify")
+    ? await supabase
+        .from("payments")
+        .select("*, bookings(id, booking_number, customers(name))")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(10)
+    : { data: null };
+
+  const pendingPayments = pending ?? [];
+  const pendingTotal = sumCentavos(
+    pendingPayments.map((payment) => payment.amount_centavos),
+  );
 
   const setupTasks = settings
     ? [
@@ -123,6 +146,54 @@ export default async function DashboardPage() {
         </Card>
       )}
 
+      {pendingPayments.length > 0 && (
+        <Card>
+          <CardHeader
+            title="Waiting on you to verify"
+            description={`${pendingPayments.length} payment${pendingPayments.length === 1 ? "" : "s"} totalling ${formatPeso(pendingTotal)}. None of it counts toward confirming a booking until you check it.`}
+            action={
+              <Link
+                href="/payments?status=pending"
+                className={buttonClasses("secondary", "sm")}
+              >
+                Open the queue
+              </Link>
+            }
+          />
+          <ul className="divide-y divide-ink-200">
+            {pendingPayments.map((payment) => (
+              <li key={payment.id} className="px-4 py-3 sm:px-6">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <span className="tabular font-semibold text-ink-900">
+                    {formatPeso(payment.amount_centavos)}
+                  </span>
+                  <span className="text-sm text-ink-500">
+                    {PAYMENT_METHOD_LABELS[payment.method]} ·{" "}
+                    {formatCalendarDate(payment.paid_on)}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-sm text-ink-600">
+                  {payment.bookings?.id ? (
+                    <Link
+                      href={`/bookings/${payment.bookings.id}`}
+                      className="font-medium text-brand-700 underline underline-offset-2"
+                    >
+                      {payment.bookings.booking_number}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}{" "}
+                  · {payment.bookings?.customers?.name ?? "—"}
+                  {payment.reference_number
+                    ? ` · Ref ${payment.reference_number}`
+                    : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       <Card>
         <CardHeader
           title="What you can do"
@@ -162,7 +233,8 @@ export default async function DashboardPage() {
       </Card>
 
       <p className="px-1 text-xs text-ink-500">
-        Bookings, calendar, catalog, and reports arrive in the next milestones.
+        Quick sales, expenses, and the financial reports arrive in the next
+        milestones.
       </p>
     </div>
   );

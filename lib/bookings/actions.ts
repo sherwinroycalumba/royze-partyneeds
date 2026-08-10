@@ -728,12 +728,18 @@ export async function setBookingStatusAction(
       downpayment_percent: before.downpayment_percent,
     });
 
+    // Verified payments only (Spec 4.7). Read through the database
+    // function so a report and this gate can never disagree about
+    // what "paid" means.
+    const { data: verifiedPaid } = await supabase.rpc(
+      "verified_paid_centavos",
+      { p_booking: bookingId },
+    );
+
     const verdict = confirmationVerdict({
       facts: {
         agreement_signed: before.agreement_signed,
-        // Payments arrive in Milestone 5; until then nothing is
-        // verified, so only an Owner override gets past this.
-        verified_paid_centavos: 0,
+        verified_paid_centavos: verifiedPaid ?? 0,
         total_centavos: totals.total_centavos,
         downpayment_percent: before.downpayment_percent,
       },

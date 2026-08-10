@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
-    "preview:pdf": "tsx scripts/preview-quotation-pdf.tsx"
+    "preview:pdf": "tsx scripts/preview-quotation-pdf.tsx && tsx scripts/preview-agreement-pdf.tsx"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.6.0",

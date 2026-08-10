@@ -268,18 +268,24 @@ export function Bullets({ items }: { items: readonly string[] }) {
  */
 export function PaymentChannelsBlock({
   accounts,
+  cashNote,
 }: {
   accounts: readonly PaymentAccount[];
+  /** Owner-editable. Blank means the business takes no cash. */
+  cashNote: string;
 }) {
   const groups = accountsByChannel(accounts);
+  const cash = cashNote.trim();
 
   return (
     <Section heading="How to pay">
       <View style={s.channels}>
-        <View style={s.channel}>
-          <Text style={s.channelName}>CASH</Text>
-          <Text style={s.channelLine}>On delivery or at the shop.</Text>
-        </View>
+        {cash ? (
+          <View style={s.channel}>
+            <Text style={s.channelName}>CASH</Text>
+            <Text style={s.channelLine}>{cash}</Text>
+          </View>
+        ) : null}
 
         {groups.flatMap((group) =>
           group.accounts.map((account) => (

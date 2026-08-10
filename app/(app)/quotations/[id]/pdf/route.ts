@@ -1,6 +1,11 @@
 import { renderToBuffer } from "@react-pdf/renderer";
 
-import { getCurrentProfile, getPaymentAccounts, getBusinessSettings } from "@/lib/auth/dal";
+import {
+  DataAccessError,
+  getBusinessSettings,
+  getCurrentProfile,
+  getPaymentAccounts,
+} from "@/lib/auth/dal";
 import { can } from "@/lib/auth/permissions";
 import { todayInManila } from "@/lib/date";
 import { QuotationDocument } from "@/lib/pdf/quotation";
@@ -54,21 +59,34 @@ export async function GET(
     return new Response("That quotation no longer exists.", { status: 404 });
   }
 
-  const [{ data: items }, { data: customer }, business, paymentAccounts] =
-    await Promise.all([
-      supabase
-        .from("quotation_items")
-        .select("*")
-        .eq("quotation_id", id)
-        .order("sort_order", { ascending: true }),
-      supabase
-        .from("customers")
-        .select("*")
-        .eq("id", quotation.customer_id)
-        .single(),
-      getBusinessSettings(),
-      getPaymentAccounts(),
-    ]);
+  // A failed read must not fall through as an empty list: a quotation
+  // printed without the GCash details is worse than one that refuses.
+  let items, customer, business, paymentAccounts;
+  try {
+    [{ data: items }, { data: customer }, business, paymentAccounts] =
+      await Promise.all([
+        supabase
+          .from("quotation_items")
+          .select("*")
+          .eq("quotation_id", id)
+          .order("sort_order", { ascending: true }),
+        supabase
+          .from("customers")
+          .select("*")
+          .eq("id", quotation.customer_id)
+          .single(),
+        getBusinessSettings(),
+        getPaymentAccounts(),
+      ]);
+  } catch (error) {
+    if (error instanceof DataAccessError) {
+      return new Response(
+        `${error.message}. The quotation was not generated — fix this before sending anything to a customer.`,
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
 
   if (!customer) {
     return new Response("The customer for this quotation is missing.", {

@@ -159,6 +159,15 @@ export async function savePaymentAccountsAction(
   if (duplicate) return { error: duplicate };
 
   const supabase = await createClient();
+
+  // The CASH box wording lives on business_settings, but it belongs to
+  // this screen — "how to pay" is one idea, not two (Spec 4.12).
+  const { error: noteError } = await supabase
+    .from("business_settings")
+    .update({ cash_payment_note: text(formData, "cash_payment_note") })
+    .eq("id", true);
+
+  if (noteError) return { error: noteError.message };
   const { data: existing } = await supabase
     .from("payment_accounts")
     .select("id");

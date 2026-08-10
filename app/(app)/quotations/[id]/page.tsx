@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getBusinessSettings, requirePermission } from "@/lib/auth/dal";
+import {
+  getBusinessSettings,
+  getPaymentAccounts,
+  requirePermission,
+} from "@/lib/auth/dal";
+import { missingChannelsWarning } from "@/lib/settings/payment-accounts";
 import { can } from "@/lib/auth/permissions";
 import { formatCalendarDate, formatDateTime, todayInManila } from "@/lib/date";
 import { formatPeso } from "@/lib/money";
@@ -47,13 +52,15 @@ export default async function QuotationPage({
 
   if (!quotation) notFound();
 
-  const [{ data: items }, business, { data: booking }] = await Promise.all([
+  const [{ data: items }, business, paymentAccounts, { data: booking }] =
+    await Promise.all([
     supabase
       .from("quotation_items")
       .select("*")
       .eq("quotation_id", id)
       .order("sort_order", { ascending: true }),
     getBusinessSettings(),
+    getPaymentAccounts(),
     // Set once this quotation has been converted (Spec 4.3).
     quotation.converted_booking_id
       ? supabase
@@ -83,6 +90,11 @@ export default async function QuotationPage({
   const customer = quotation.customers;
   const daysLeft = daysUntilExpiry(quotation.valid_until, today);
   const editable = canManage && canEditQuotation(quotation.status);
+  // Shown to staff, never to the customer: the PDF still renders, but
+  // it will go out with cash as the only way to pay.
+  const channelsWarning = canManage
+    ? missingChannelsWarning(paymentAccounts)
+    : null;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
@@ -146,6 +158,8 @@ export default async function QuotationPage({
             : `This quotation expires in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}.`}
         </Banner>
       )}
+
+      {channelsWarning && <Banner tone="warning">{channelsWarning}</Banner>}
 
       {status === "expired" && (
         <Banner tone="warning">

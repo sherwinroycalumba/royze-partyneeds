@@ -194,7 +194,10 @@ export function QuotationDocument({
           </Section>
         ) : null}
 
-        <PaymentChannelsBlock accounts={paymentAccounts} />
+        <PaymentChannelsBlock
+          accounts={paymentAccounts}
+          cashNote={business.cash_payment_note}
+        />
 
         <Section heading="Terms">
           <Bullets

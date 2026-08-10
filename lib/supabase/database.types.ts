@@ -77,6 +77,8 @@ export type BusinessSettings = {
   downpayment_percent: number;
   quotation_validity_days: number;
   free_delivery_area: string;
+  /** What the "CASH" box says on documents. Blank omits it entirely. */
+  cash_payment_note: string;
   delivery_fee_table: DeliveryFeeArea[];
   agreement_clauses: AgreementClause[];
   expense_categories: string[];
@@ -366,6 +368,53 @@ export type BookingItem = {
   sort_order: number;
 };
 
+/** Generated → Printed/Sent → Signed (Spec 4.5). */
+export type AgreementStatus = "generated" | "sent" | "signed";
+
+export type RentalAgreement = {
+  id: string;
+  agreement_number: string;
+  booking_id: string;
+  status: AgreementStatus;
+  /** Snapshotted at generation — a signed document never changes. */
+  clauses: AgreementClause[];
+  total_centavos: number;
+  downpayment_centavos: number;
+  sent_at: string | null;
+  signed_at: string | null;
+  /** Storage path in the private `documents` bucket. */
+  signed_copy_path: string | null;
+  signed_by_name: string;
+  generated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** How the money arrived (Spec 4.7). */
+export type PaymentMethod = "cash" | "gcash" | "maya" | "bank_transfer";
+
+/** Cash is verified on sight; everything else waits for the Owner. */
+export type PaymentStatus = "pending" | "verified" | "rejected";
+
+export type Payment = {
+  id: string;
+  booking_id: string | null;
+  /** `YYYY-MM-DD` in Manila. */
+  paid_on: string;
+  amount_centavos: number;
+  method: PaymentMethod;
+  reference_number: string;
+  screenshot_path: string | null;
+  notes: string;
+  status: PaymentStatus;
+  verified_by: string | null;
+  verified_at: string | null;
+  rejected_reason: string;
+  recorded_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AuditLogEntry = {
   id: number;
   actor_id: string | null;
@@ -547,6 +596,35 @@ export type Database = {
           },
         ];
       };
+      rental_agreements: {
+        Row: RentalAgreement;
+        Insert: Partial<RentalAgreement> &
+          Pick<RentalAgreement, "agreement_number" | "booking_id">;
+        Update: Partial<RentalAgreement>;
+        Relationships: [
+          {
+            foreignKeyName: "rental_agreements_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: true;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      payments: {
+        Row: Payment;
+        Insert: Partial<Payment> & Pick<Payment, "amount_centavos" | "method">;
+        Update: Partial<Payment>;
+        Relationships: [
+          {
+            foreignKeyName: "payments_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: false;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       quotation_items: {
         Row: QuotationItem;
         Insert: Partial<QuotationItem> &
@@ -592,6 +670,11 @@ export type Database = {
         Returns: boolean;
       };
       /** Rental stock already spoken for across an overlapping window. */
+      /** Only verified payments count toward the 50% gate (Spec 4.7). */
+      verified_paid_centavos: {
+        Args: { p_booking: string };
+        Returns: number;
+      };
       reserved_quantities: {
         Args: { p_from: string; p_to: string; p_exclude?: string | null };
         Returns: { catalog_item_id: string; reserved_quantity: number }[];
@@ -615,6 +698,9 @@ export type Database = {
       booking_status: BookingStatus;
       booking_line_type: BookingLineType;
       return_condition: ReturnCondition;
+      agreement_status: AgreementStatus;
+      payment_method: PaymentMethod;
+      payment_status: PaymentStatus;
     };
     CompositeTypes: Record<string, never>;
   };

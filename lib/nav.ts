@@ -132,6 +132,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permissions: ["quotations.view"],
   },
   {
+    href: "/payments",
+    label: "Payments",
+    icon: "payments",
+    // The Bookkeeper reads them for the money trail; only the Owner
+    // can verify one (Spec 4.7).
+    permissions: ["payments.record", "reports.financial.view"],
+  },
+  {
     href: "/catalog",
     label: "Price Catalog",
     shortLabel: "Catalog",

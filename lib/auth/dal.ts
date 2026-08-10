@@ -134,34 +134,68 @@ export async function hasPermission(permission: Permission): Promise<boolean> {
 }
 
 /**
+ * A read that should have worked and did not — a missing table, a
+ * broken policy, a database that is down.
+ *
+ * Deliberately distinct from "there is nothing here yet". An empty
+ * list of payment accounts is a legitimate state; a *failure to read*
+ * them is not, and must never quietly render as the same thing. That
+ * confusion once shipped quotations with no GCash details on them.
+ */
+export class DataAccessError extends Error {}
+
+/**
  * Every payment account on file, in display order (Spec 4.12).
  *
  * Returns inactive ones too — the settings screen edits them. Callers
  * rendering a customer-facing document must narrow with
  * `activeAccounts` from `lib/settings/payment-accounts`.
+ *
+ * Throws rather than returning `[]` when the read fails: a document
+ * that silently omits where to send money is worse than one that
+ * refuses to render.
  */
 export const getPaymentAccounts = cache(
   async (): Promise<PaymentAccount[]> => {
     const supabase = await createClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("payment_accounts")
       .select("*")
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
 
+    if (error) {
+      throw new DataAccessError(
+        `Could not read the payment accounts: ${error.message}`,
+      );
+    }
+
     return data ?? [];
   },
 );
 
-/** Business settings singleton — read on nearly every page and PDF. */
+/**
+ * Business settings singleton — read on nearly every page and PDF.
+ *
+ * `null` means the row has not been created yet, which callers handle.
+ * A failed read throws, for the same reason as above.
+ */
 export const getBusinessSettings = cache(
   async (): Promise<BusinessSettings | null> => {
     const supabase = await createClient();
-    const { data } = await supabase
+    // maybeSingle, so "no row yet" is null rather than an error and the
+    // two cases stay distinguishable.
+    const { data, error } = await supabase
       .from("business_settings")
       .select("*")
       .eq("id", true)
-      .single();
+      .maybeSingle();
+
+    if (error) {
+      throw new DataAccessError(
+        `Could not read the business settings: ${error.message}`,
+      );
+    }
 
     return data ?? null;
   },

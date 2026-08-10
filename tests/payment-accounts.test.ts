@@ -5,6 +5,7 @@ import {
   activeAccounts,
   describeAccount,
   findDuplicateAccount,
+  missingChannelsWarning,
   needsBankName,
   validatePaymentAccount,
   type PaymentAccountDraft,
@@ -214,5 +215,25 @@ describe("describeAccount", () => {
     expect(describeAccount(account({ account_name: "" }))).toBe(
       "GCash · 0917 123 4567",
     );
+  });
+});
+
+// ── Warning staff before a document goes out ──────────────────
+describe("missingChannelsWarning", () => {
+  it("says nothing when an active account exists", () => {
+    expect(missingChannelsWarning([account({ is_active: true })])).toBeNull();
+  });
+
+  it("warns when nothing is configured at all", () => {
+    // This is the state that once shipped quotations with no GCash
+    // details on them, silently.
+    expect(missingChannelsWarning([])).toMatch(/cash only/);
+  });
+
+  it("distinguishes 'none set up' from 'all switched off'", () => {
+    expect(missingChannelsWarning([])).toMatch(/No payment channels are set up/);
+    expect(
+      missingChannelsWarning([account({ is_active: false })]),
+    ).toMatch(/switched off/);
   });
 });

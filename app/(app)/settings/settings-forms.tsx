@@ -232,8 +232,10 @@ function newAccountRow(defaults: Partial<AccountRow> = {}): AccountRow {
  */
 export function PaymentAccountsForm({
   accounts,
+  cashNote,
 }: {
   accounts: PaymentAccount[];
+  cashNote: string;
 }) {
   const [rows, setRows] = useState<AccountRow[]>(() =>
     accounts.length > 0
@@ -266,6 +268,25 @@ export function PaymentAccountsForm({
       description="Every active account is printed on quotations and rental agreements, so customers know where to send payment."
       action={savePaymentAccountsAction}
     >
+      <div>
+        <label
+          htmlFor="cash_payment_note"
+          className="block text-sm font-medium text-ink-700"
+        >
+          Cash instructions
+        </label>
+        <p className="mb-1.5 text-xs text-ink-500">
+          What the CASH box says on quotations and agreements. Leave it blank
+          if you do not take cash at all — the box is then left off entirely.
+        </p>
+        <TextInput
+          id="cash_payment_note"
+          name="cash_payment_note"
+          defaultValue={cashNote}
+          placeholder="e.g. At the shop only — we do not accept cash on delivery."
+        />
+      </div>
+
       <div className="space-y-3">
         {rows.map((row, index) => (
           <fieldset

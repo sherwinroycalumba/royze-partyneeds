@@ -115,6 +115,25 @@ export function accountsByChannel(
 }
 
 /**
+ * The warning staff need before sending a document out, or null when
+ * there is nothing to warn about (Spec 4.3 / 4.5).
+ *
+ * With no active account on file the PDF still renders — cash-only is
+ * a legitimate way to run a business — but it goes to the customer
+ * without a GCash or bank detail on it, and whoever is about to press
+ * Send should know that before they do, not after.
+ */
+export function missingChannelsWarning(
+  accounts: readonly PaymentAccount[],
+): string | null {
+  if (activeAccounts(accounts).length > 0) return null;
+
+  return accounts.length === 0
+    ? "No payment channels are set up, so documents will print with cash only. Add your GCash, Maya, or bank details under Settings → Payment Channels."
+    : "Every payment account is switched off, so documents will print with cash only. Re-activate one under Settings → Payment Channels.";
+}
+
+/**
  * One-line rendering for a document or a list row:
  *   "BPI — Royze Party Needs · 1234-5678-90"
  *   "GCash — Royze Owner · 0917 123 4567"

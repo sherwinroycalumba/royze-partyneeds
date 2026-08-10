@@ -39,6 +39,7 @@ const business: BusinessSettings = {
   downpayment_percent: 50,
   quotation_validity_days: 7,
   free_delivery_area: "Deca Homes Meycauayan",
+  cash_payment_note: "On delivery or at the shop.",
   delivery_fee_table: [],
   agreement_clauses: [],
   expense_categories: [],
