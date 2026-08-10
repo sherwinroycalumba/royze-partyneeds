@@ -132,6 +132,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permissions: ["quotations.view"],
   },
   {
+    href: "/orders",
+    label: "Quick Sales",
+    shortLabel: "Sales",
+    icon: "orders",
+    permissions: ["orders.manage", "reports.financial.view"],
+  },
+  {
     href: "/payments",
     label: "Payments",
     icon: "payments",

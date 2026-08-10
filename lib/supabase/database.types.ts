@@ -398,7 +398,9 @@ export type PaymentStatus = "pending" | "verified" | "rejected";
 
 export type Payment = {
   id: string;
+  /** Exactly one of these is set. */
   booking_id: string | null;
+  order_id: string | null;
   /** `YYYY-MM-DD` in Manila. */
   paid_on: string;
   amount_centavos: number;
@@ -413,6 +415,38 @@ export type Payment = {
   recorded_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** A quick sale is completed on the spot, or voided later (Spec 4.6). */
+export type OrderStatus = "completed" | "voided";
+
+export type Order = {
+  id: string;
+  order_number: string;
+  /** Null for a walk-in, who has no directory record. */
+  customer_id: string | null;
+  /** What prints when there is no linked customer. */
+  customer_label: string;
+  status: OrderStatus;
+  sold_on: string;
+  discount_centavos: number;
+  notes: string;
+  voided_at: string | null;
+  voided_reason: string;
+  sold_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OrderItem = {
+  id: string;
+  order_id: string;
+  catalog_item_id: string | null;
+  description: string;
+  quantity: number;
+  unit_price_centavos: number;
+  line_discount_centavos: number;
+  sort_order: number;
 };
 
 export type AuditLogEntry = {
@@ -623,6 +657,48 @@ export type Database = {
             referencedRelation: "bookings";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "payments_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      orders: {
+        Row: Order;
+        Insert: Partial<Order> & Pick<Order, "order_number">;
+        Update: Partial<Order>;
+        Relationships: [
+          {
+            foreignKeyName: "orders_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      order_items: {
+        Row: OrderItem;
+        Insert: Partial<OrderItem> & Pick<OrderItem, "order_id" | "description">;
+        Update: Partial<OrderItem>;
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "order_items_catalog_item_id_fkey";
+            columns: ["catalog_item_id"];
+            isOneToOne: false;
+            referencedRelation: "catalog_items";
+            referencedColumns: ["id"];
+          },
         ];
       };
       quotation_items: {
@@ -675,6 +751,11 @@ export type Database = {
         Args: { p_booking: string };
         Returns: number;
       };
+      order_verified_paid_centavos: {
+        Args: { p_order: string };
+        Returns: number;
+      };
+      can_manage_orders: { Args: Record<string, never>; Returns: boolean };
       reserved_quantities: {
         Args: { p_from: string; p_to: string; p_exclude?: string | null };
         Returns: { catalog_item_id: string; reserved_quantity: number }[];
@@ -701,6 +782,7 @@ export type Database = {
       agreement_status: AgreementStatus;
       payment_method: PaymentMethod;
       payment_status: PaymentStatus;
+      order_status: OrderStatus;
     };
     CompositeTypes: Record<string, never>;
   };

@@ -8,9 +8,8 @@ import {
 } from "@/lib/auth/dal";
 import { activeAccounts } from "@/lib/settings/payment-accounts";
 import { can, ROLE_LABELS } from "@/lib/auth/permissions";
-import {
-  PAYMENT_METHOD_LABELS,
-} from "@/lib/payments/methods";
+import { PAYMENT_METHOD_LABELS } from "@/lib/payments/methods";
+import { lowStockItems } from "@/lib/orders/stock";
 import { formatPeso, sumCentavos } from "@/lib/money";
 import { createClient } from "@/lib/supabase/server";
 import { Badge, Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -43,6 +42,25 @@ export default async function DashboardPage() {
   const pendingPayments = pending ?? [];
   const pendingTotal = sumCentavos(
     pendingPayments.map((payment) => payment.amount_centavos),
+  );
+
+  // Low stock is everyone's problem — the person at the counter needs
+  // to know before they promise a customer something (Spec 4.6).
+  const { data: saleItems } = can(profile, "catalog.view")
+    ? await supabase
+        .from("catalog_items")
+        .select("id, name, stock_quantity, low_stock_threshold")
+        .eq("is_active", true)
+        .eq("is_sale", true)
+    : { data: null };
+
+  const lowStock = lowStockItems(
+    (saleItems ?? []).map((item) => ({
+      catalog_item_id: item.id,
+      name: item.name,
+      stock_quantity: item.stock_quantity,
+      low_stock_threshold: item.low_stock_threshold,
+    })),
   );
 
   const setupTasks = settings
@@ -194,6 +212,40 @@ export default async function DashboardPage() {
         </Card>
       )}
 
+      {lowStock.length > 0 && (
+        <Card>
+          <CardHeader
+            title="Running low"
+            description={`${lowStock.length} sale ${lowStock.length === 1 ? "item is" : "items are"} at or below the reorder level.`}
+            action={
+              <Link
+                href="/catalog?type=sale"
+                className={buttonClasses("secondary", "sm")}
+              >
+                Open the catalog
+              </Link>
+            }
+          />
+          <CardBody>
+            <ul className="flex flex-wrap gap-2">
+              {lowStock.map((item) => (
+                <li
+                  key={item.catalog_item_id}
+                  className="rounded-lg border border-warning-100 bg-warning-50 px-3 py-1.5 text-sm"
+                >
+                  <span className="font-semibold text-warning-700">
+                    {item.name}
+                  </span>
+                  <span className="tabular ml-2 text-warning-700">
+                    {item.stock_quantity} left
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
       <Card>
         <CardHeader
           title="What you can do"
@@ -233,7 +285,7 @@ export default async function DashboardPage() {
       </Card>
 
       <p className="px-1 text-xs text-ink-500">
-        Quick sales, expenses, and the financial reports arrive in the next
+        Expenses, payables, and the financial reports arrive in the next
         milestones.
       </p>
     </div>

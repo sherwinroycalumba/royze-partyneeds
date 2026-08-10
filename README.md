@@ -84,6 +84,10 @@ Open **SQL Editor**, paste the contents of each file in order, and run:
 7. `0007_agreements_payments.sql` — rental agreements, payments and
    their verification workflow, the `verified_paid_centavos` function,
    and the trigger that keeps `bookings.agreement_signed` honest
+8. `0008_cash_payment_note.sql` — makes the CASH line on documents
+   owner-editable
+9. `0009_orders.sql` — quick-sale orders, and `payments.order_id` so a
+   payment can hang off an order as well as a booking
 
 **Option B — Supabase CLI:**
 
@@ -181,6 +185,7 @@ app/
                    [id]/agreement returns the signed-document PDF
     calendar/      month, week, and day views of the whole team's work
     payments/      the ledger and the owner's verification queue
+    orders/        the quick-sale screen, the sales list, and receipts
     settings/      business, payments, delivery, defaults,
                    agreement, expenses, users — one route each
 lib/
@@ -208,6 +213,11 @@ lib/
     actions.ts     server actions ONLY
   agreements/
     status.ts      Generated → Sent → Signed (pure, tested)
+    actions.ts     server actions ONLY
+  orders/
+    totals.ts      counter arithmetic — no fee, no downpayment (pure, tested)
+    stock.ts       sale and void stock movements, low stock (pure, tested)
+    status.ts      completed / voided (pure, tested)
     actions.ts     server actions ONLY
   payments/
     methods.ts     methods, the cash-auto-verifies rule, validation (pure, tested)
@@ -381,6 +391,26 @@ one. Damaged stock stays owned but stops being available; lost stock reduces
 what the business owns. Marking damaged items repaired or written off is
 Milestone 7.
 
+**A quick sale is one screen and one submission.** Spec 4.6 sets the bar at
+"under ~30 seconds so quick sales actually get recorded" — the problem being
+solved is unrecorded sales, not imperfect ones. So the sale, its stock
+movement, and its payment are a single form: tap an item, tap a payment
+method, done. The customer defaults to Walk-in, the date to today, the price
+to the catalog's, and quantity is a stepper rather than a keyboard.
+
+**Selling more than the shelf says is recorded, not refused.** If the count
+says eight and someone sells ten, the goods have physically left the shop.
+Refusing that would recreate the exact problem the screen exists to fix, so
+the sale saves, stock floors at zero, and the discrepancy is surfaced to
+staff and written to the audit trail so somebody can recount. Orders are
+never deleted either: voiding puts the stock back, strikes the payment with
+a reason, and leaves the mistake on the record.
+
+**Order arithmetic is deliberately its own function.** `orderTotals` is not
+`documentTotals` with zeroes passed in — a counter sale has no delivery fee
+and no downpayment, and faking them would leave two shapes of "total" that
+look interchangeable and are not.
+
 **Payment accounts.** The business can hold any number of GCash, Maya, and
 bank accounts. Only the ones marked active print on quotations and rental
 agreements, so a closed account stays on file for reference without ever
@@ -433,7 +463,7 @@ Built in the milestone order from `Spec.md` §7.
 - [x] **3 — Quotations + PDF engine**
 - [x] **4 — Bookings, availability engine, statuses, calendar**
 - [x] **5 — Rental agreements, payments, verification, 50% confirmation rule**
-- [ ] 6 — Quick-sale orders + inventory decrement
+- [x] **6 — Quick-sale orders + inventory decrement**
 - [ ] 7 — Expenses, payables, asset monitoring
 - [ ] 8 — Dashboard + reports + CSV/PDF export
 - [ ] 9 — Seed data, audit polish, deployment guide
