@@ -113,6 +113,12 @@ export type CatalogItem = {
   low_stock_threshold: number;
   /** Out of service until the Owner repairs or writes it off (Spec 4.4). */
   damaged_quantity: number;
+  /** Away being fixed — still owned, still unavailable (Spec 4.9). */
+  under_repair_quantity: number;
+  /** Retired for good. Also removed from quantity_owned. */
+  written_off_quantity: number;
+  acquisition_cost_centavos: number;
+  acquired_on: string | null;
   is_active: boolean;
   created_by: string | null;
   created_at: string;
@@ -449,6 +455,28 @@ export type OrderItem = {
   sort_order: number;
 };
 
+export type Expense = {
+  id: string;
+  expense_date: string;
+  payee: string;
+  supplier_id: string | null;
+  /** Matched against business_settings.expense_categories. */
+  category: string;
+  amount_centavos: number;
+  method: PaymentMethod | null;
+  reference_number: string;
+  /** Storage path in the private `documents` bucket. */
+  receipt_path: string | null;
+  notes: string;
+  /** An unpaid expense is a payable (Spec 4.8). */
+  is_paid: boolean;
+  due_date: string | null;
+  paid_on: string | null;
+  recorded_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AuditLogEntry = {
   id: number;
   actor_id: string | null;
@@ -701,6 +729,20 @@ export type Database = {
           },
         ];
       };
+      expenses: {
+        Row: Expense;
+        Insert: Partial<Expense> & Pick<Expense, "amount_centavos">;
+        Update: Partial<Expense>;
+        Relationships: [
+          {
+            foreignKeyName: "expenses_supplier_id_fkey";
+            columns: ["supplier_id"];
+            isOneToOne: false;
+            referencedRelation: "suppliers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       quotation_items: {
         Row: QuotationItem;
         Insert: Partial<QuotationItem> &
@@ -756,6 +798,11 @@ export type Database = {
         Returns: number;
       };
       can_manage_orders: { Args: Record<string, never>; Returns: boolean };
+      can_manage_expenses: { Args: Record<string, never>; Returns: boolean };
+      can_categorise_expenses: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
       reserved_quantities: {
         Args: { p_from: string; p_to: string; p_exclude?: string | null };
         Returns: { catalog_item_id: string; reserved_quantity: number }[];

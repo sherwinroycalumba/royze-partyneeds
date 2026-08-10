@@ -88,6 +88,9 @@ Open **SQL Editor**, paste the contents of each file in order, and run:
    owner-editable
 9. `0009_orders.sql` — quick-sale orders, and `payments.order_id` so a
    payment can hang off an order as well as a booking
+10. `0010_expenses_assets.sql` — expenses and payables, plus the
+    under-repair / written-off counts and acquisition details that
+    turn the rental catalog into an asset register
 
 **Option B — Supabase CLI:**
 
@@ -186,6 +189,8 @@ app/
     calendar/      month, week, and day views of the whole team's work
     payments/      the ledger and the owner's verification queue
     orders/        the quick-sale screen, the sales list, and receipts
+    expenses/      spending, categories, and the payables queue
+    assets/        the equipment register and overdue returns
     settings/      business, payments, delivery, defaults,
                    agreement, expenses, users — one route each
 lib/
@@ -213,6 +218,14 @@ lib/
     actions.ts     server actions ONLY
   agreements/
     status.ts      Generated → Sent → Signed (pure, tested)
+    actions.ts     server actions ONLY
+  assets/
+    status.ts      the owned/damaged/repair/written-off counts, the
+                   availability breakdown, overdue returns (pure, tested)
+    actions.ts     server actions ONLY
+  expenses/
+    payables.ts    payable aging and category totals (pure, tested)
+    validation.ts  what makes an expense savable (pure, tested)
     actions.ts     server actions ONLY
   orders/
     totals.ts      counter arithmetic — no fee, no downpayment (pure, tested)
@@ -411,6 +424,28 @@ a reason, and leaves the mistake on the record.
 and no downpayment, and faking them would leave two shapes of "total" that
 look interchangeable and are not.
 
+**Damaged stock now has a way back.** Milestone 4 took broken items out of
+availability on return and left them there — the register was a one-way door.
+The Owner can now move stock between damaged, away for repair, and back in
+service, or write it off. Writing off shrinks the fleet as well as the broken
+pile, exactly as an item lost on return does, so `quantity_owned` always means
+"what the business actually has". Available is *derived* — owned less damaged,
+under repair, reserved, and out on rental — so putting something back in
+service is simply taking it out of the broken pile.
+
+**A payable with no due date is refused.** An unpaid expense that nobody
+dated is a bill nobody will chase, so the validation insists on one. Paid and
+unpaid expenses keep the other's date column blank rather than carrying a
+stale value into the payables queue. Aging buckets match the receivables
+report in Spec 4.11, so both halves of the money picture read the same way.
+
+**Uncategorised spending is visible, not silent.** An expense with no category
+gets its own bucket in the totals and a count on the page, because finding
+those is precisely the Bookkeeper's job before a BIR filing. Categorising is
+its own server action, separate from editing, so the Bookkeeper can reach the
+category and nothing else — the app-level half of an RLS policy that can only
+say "may update", not "may update this column".
+
 **Payment accounts.** The business can hold any number of GCash, Maya, and
 bank accounts. Only the ones marked active print on quotations and rental
 agreements, so a closed account stays on file for reference without ever
@@ -464,7 +499,7 @@ Built in the milestone order from `Spec.md` §7.
 - [x] **4 — Bookings, availability engine, statuses, calendar**
 - [x] **5 — Rental agreements, payments, verification, 50% confirmation rule**
 - [x] **6 — Quick-sale orders + inventory decrement**
-- [ ] 7 — Expenses, payables, asset monitoring
+- [x] **7 — Expenses, payables, asset monitoring**
 - [ ] 8 — Dashboard + reports + CSV/PDF export
 - [ ] 9 — Seed data, audit polish, deployment guide
 

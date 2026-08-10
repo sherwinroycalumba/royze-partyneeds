@@ -10,6 +10,9 @@ import { activeAccounts } from "@/lib/settings/payment-accounts";
 import { can, ROLE_LABELS } from "@/lib/auth/permissions";
 import { PAYMENT_METHOD_LABELS } from "@/lib/payments/methods";
 import { lowStockItems } from "@/lib/orders/stock";
+import { daysOverdue, overdueReturns, type OutItem } from "@/lib/assets/status";
+import { summarisePayables } from "@/lib/expenses/payables";
+import { manilaCalendarDate, todayInManila } from "@/lib/date";
 import { formatPeso, sumCentavos } from "@/lib/money";
 import { createClient } from "@/lib/supabase/server";
 import { Badge, Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -53,6 +56,40 @@ export default async function DashboardPage() {
         .eq("is_active", true)
         .eq("is_sale", true)
     : { data: null };
+
+  const today = todayInManila();
+
+  // Items that should already be back, and bills that should already
+  // have been paid — the two things that quietly go wrong (Spec 4.9,
+  // 4.8).
+  const { data: outBookings } = can(profile, "bookings.view")
+    ? await supabase
+        .from("bookings")
+        .select("id, booking_number, status, pickup_at, reserved_to, customers(name)")
+        .in("status", ["out_for_delivery", "delivered"])
+    : { data: null };
+
+  const overdue = overdueReturns(
+    (outBookings ?? []).map<OutItem>((booking) => ({
+      booking_id: booking.id,
+      booking_number: booking.booking_number,
+      customer_name: booking.customers?.name ?? "—",
+      due_back: booking.pickup_at
+        ? manilaCalendarDate(booking.pickup_at)
+        : booking.reserved_to,
+      status: booking.status,
+    })),
+    today,
+  );
+
+  const { data: payableRows } = can(profile, "expenses.categorize")
+    ? await supabase
+        .from("expenses")
+        .select("amount_centavos, category, is_paid, due_date, expense_date")
+        .eq("is_paid", false)
+    : { data: null };
+
+  const payables = summarisePayables(payableRows ?? [], today);
 
   const lowStock = lowStockItems(
     (saleItems ?? []).map((item) => ({
@@ -209,6 +246,60 @@ export default async function DashboardPage() {
               </li>
             ))}
           </ul>
+        </Card>
+      )}
+
+      {overdue.length > 0 && (
+        <Card>
+          <CardHeader
+            title="Overdue returns"
+            description={`${overdue.length} ${overdue.length === 1 ? "booking has" : "bookings have"} items that should already be back.`}
+            action={
+              <Link
+                href="/assets"
+                className={buttonClasses("secondary", "sm")}
+              >
+                Open equipment
+              </Link>
+            }
+          />
+          <ul className="divide-y divide-ink-200">
+            {overdue.slice(0, 5).map((booking) => (
+              <li key={booking.booking_id} className="px-4 py-3 sm:px-6">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <Link
+                    href={`/bookings/${booking.booking_id}`}
+                    className="font-semibold text-brand-700 underline underline-offset-2"
+                  >
+                    {booking.customer_name}
+                  </Link>
+                  <span className="text-sm font-semibold text-danger-600">
+                    {daysOverdue(booking.due_back!, today)} days late
+                  </span>
+                </div>
+                <p className="tabular mt-0.5 text-sm text-ink-600">
+                  {booking.booking_number}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {payables.outstanding_centavos > 0 && (
+        <Card>
+          <CardHeader
+            title="Bills to pay"
+            description={`${formatPeso(payables.outstanding_centavos)} outstanding${payables.overdue_count > 0 ? `, ${formatPeso(payables.overdue_centavos)} of it overdue` : ""}.`}
+            action={
+              <Link
+                href="/expenses?status=unpaid"
+                className={buttonClasses("secondary", "sm")}
+              >
+                Open payables
+              </Link>
+            }
+          />
         </Card>
       )}
 

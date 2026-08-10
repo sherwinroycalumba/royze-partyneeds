@@ -161,6 +161,20 @@ export const NAV_ITEMS: readonly NavItem[] = [
     permissions: ["catalog.view"],
   },
   {
+    href: "/expenses",
+    label: "Expenses",
+    icon: "expenses",
+    // The Bookkeeper categorises them for the BIR filing report; the
+    // Owner records and pays them (Spec 3).
+    permissions: ["expenses.manage", "expenses.categorize"],
+  },
+  {
+    href: "/assets",
+    label: "Equipment",
+    icon: "reports",
+    permissions: ["catalog.view"],
+  },
+  {
     href: "/suppliers",
     label: "Suppliers",
     icon: "suppliers",
