@@ -82,11 +82,13 @@ const BOOKING_STAFF: Permission[] = [
 
 const DELIVERY_STAFF: Permission[] = [
   // Read-only on bookings; the only mutation is delivery status and
-  // item condition on return (Spec 3).
+  // item condition on return (Spec 3). Deliberately no catalog access:
+  // a booking's lines carry their own snapshotted descriptions, so the
+  // driver never needs the price list — and the nav must not offer a
+  // page the server would refuse.
   "bookings.view",
   "calendar.view",
   "delivery.update",
-  "catalog.view",
 ];
 
 const BOOKKEEPER: Permission[] = [

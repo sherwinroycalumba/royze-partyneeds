@@ -1,23 +1,19 @@
-import type { Permission } from "@/lib/auth/permissions";
+import { canAny, type Permission, type Principal } from "@/lib/auth/permissions";
 
 /**
- * Navigation model. Each item declares the permission that reveals it,
- * so the nav a user sees always matches what the server will let them
- * do. Later milestones add entries here; nothing else needs to change.
+ * Navigation model.
+ *
+ * Each link declares the permission that reveals it, so the nav a user
+ * sees always matches what the server will let them open — hiding a
+ * page somebody could still reach by typing the URL would be a lie,
+ * and showing one they cannot open is worse.
+ *
+ * Links are gathered into collapsible groups because a flat list of
+ * thirteen destinations is unreadable on a phone and not much better
+ * on a laptop. Dashboard and Settings stay at the top level: the first
+ * is where everyone lands, and the second already carries its own
+ * sub-sections.
  */
-export type NavItem = {
-  href: string;
-  label: string;
-  /** Shorter label for the mobile bottom bar. */
-  shortLabel?: string;
-  icon: IconName;
-  /** Item is shown when the user holds ANY of these permissions. */
-  permissions: readonly Permission[];
-  /** Surfaced in the phone bottom bar (kept to four or fewer). */
-  primary?: boolean;
-  /** Sub-links, rendered as an expandable group under the parent. */
-  children?: readonly NavChild[];
-};
 
 export type NavChild = {
   href: string;
@@ -25,6 +21,32 @@ export type NavChild = {
   /** Shown as the sub-page's own subtitle. */
   description?: string;
 };
+
+export type NavLink = {
+  href: string;
+  label: string;
+  /** Shorter label for the mobile bottom bar. */
+  shortLabel?: string;
+  icon: IconName;
+  /** Shown when the user holds ANY of these permissions. */
+  permissions: readonly Permission[];
+  /** Surfaced in the phone bottom bar (kept to four or fewer). */
+  primary?: boolean;
+  /** Sub-links, rendered as an expandable list under the parent. */
+  children?: readonly NavChild[];
+};
+
+export type NavGroup = {
+  /** Stable key — also what the collapsed state is remembered under. */
+  id: string;
+  label: string;
+  icon: IconName;
+  items: readonly NavLink[];
+};
+
+export type NavEntry =
+  | { kind: "link"; link: NavLink }
+  | { kind: "group"; group: NavGroup };
 
 /**
  * Settings is seven distinct screens (Spec 4.12), which is far more
@@ -91,104 +113,214 @@ export type IconName =
   | "users"
   | "settings";
 
-export const NAV_ITEMS: readonly NavItem[] = [
+export const NAV_STRUCTURE: readonly NavEntry[] = [
   {
-    href: "/dashboard",
-    label: "Dashboard",
-    shortLabel: "Home",
-    icon: "dashboard",
-    permissions: ["bookings.view", "calendar.view", "reports.financial.view"],
-    primary: true,
+    kind: "link",
+    link: {
+      href: "/dashboard",
+      label: "Dashboard",
+      shortLabel: "Home",
+      icon: "dashboard",
+      permissions: ["bookings.view", "calendar.view", "reports.financial.view"],
+      primary: true,
+    },
   },
+
   {
-    href: "/bookings",
-    label: "Bookings",
-    icon: "bookings",
-    permissions: ["bookings.view"],
-    primary: true,
+    kind: "group",
+    group: {
+      id: "sales",
+      label: "Sales & Bookings",
+      icon: "bookings",
+      items: [
+        {
+          href: "/bookings",
+          label: "Bookings",
+          icon: "bookings",
+          permissions: ["bookings.view"],
+          primary: true,
+        },
+        {
+          href: "/calendar",
+          label: "Calendar",
+          icon: "calendar",
+          // The whole team's source of truth for the day (Spec 4.10) —
+          // this is what replaced the Messenger announcements.
+          permissions: ["calendar.view"],
+          primary: true,
+        },
+        {
+          href: "/quotations",
+          label: "Quotations",
+          shortLabel: "Quotes",
+          icon: "quotations",
+          // The Bookkeeper holds this too, read-only, for the
+          // receivables picture; Delivery Staff never see prices.
+          permissions: ["quotations.view"],
+        },
+        {
+          href: "/orders",
+          label: "Quick Sales",
+          shortLabel: "Sales",
+          icon: "orders",
+          permissions: ["orders.manage", "reports.financial.view"],
+        },
+        {
+          href: "/payments",
+          label: "Payments",
+          icon: "payments",
+          permissions: ["payments.record", "reports.financial.view"],
+        },
+      ],
+    },
   },
+
   {
-    href: "/calendar",
-    label: "Calendar",
-    icon: "calendar",
-    // The whole team's source of truth for the day (Spec 4.10) — this
-    // is what replaced the Messenger announcements.
-    permissions: ["calendar.view"],
-    primary: true,
+    kind: "group",
+    group: {
+      id: "catalog",
+      label: "Catalog & Assets",
+      icon: "catalog",
+      items: [
+        {
+          href: "/catalog",
+          label: "Price Catalog",
+          shortLabel: "Catalog",
+          icon: "catalog",
+          permissions: ["catalog.view"],
+        },
+        {
+          href: "/packages",
+          label: "Backdrop Packages",
+          shortLabel: "Packages",
+          icon: "packages",
+          permissions: ["catalog.view"],
+        },
+        {
+          href: "/assets",
+          label: "Equipment",
+          icon: "reports",
+          permissions: ["catalog.view"],
+        },
+      ],
+    },
   },
+
   {
-    href: "/customers",
-    label: "Customers",
-    icon: "customers",
-    permissions: ["customers.view"],
+    kind: "group",
+    group: {
+      id: "contacts",
+      label: "Contacts",
+      icon: "customers",
+      items: [
+        {
+          href: "/customers",
+          label: "Customers",
+          icon: "customers",
+          permissions: ["customers.view"],
+        },
+        {
+          href: "/suppliers",
+          label: "Suppliers",
+          icon: "suppliers",
+          permissions: ["suppliers.view"],
+        },
+      ],
+    },
   },
+
   {
-    href: "/quotations",
-    label: "Quotations",
-    shortLabel: "Quotes",
-    icon: "quotations",
-    // The Bookkeeper holds this too, read-only, for the receivables
-    // picture; Delivery Staff never see prices (Spec 3).
-    permissions: ["quotations.view"],
+    kind: "group",
+    group: {
+      id: "finance",
+      label: "Finance",
+      icon: "expenses",
+      items: [
+        {
+          href: "/expenses",
+          label: "Expenses",
+          icon: "expenses",
+          // The Bookkeeper categorises them for the BIR filing report;
+          // the Owner records and pays them (Spec 3).
+          permissions: ["expenses.manage", "expenses.categorize"],
+        },
+        // Reports joins this group in Milestone 8.
+      ],
+    },
   },
+
   {
-    href: "/orders",
-    label: "Quick Sales",
-    shortLabel: "Sales",
-    icon: "orders",
-    permissions: ["orders.manage", "reports.financial.view"],
-  },
-  {
-    href: "/payments",
-    label: "Payments",
-    icon: "payments",
-    // The Bookkeeper reads them for the money trail; only the Owner
-    // can verify one (Spec 4.7).
-    permissions: ["payments.record", "reports.financial.view"],
-  },
-  {
-    href: "/catalog",
-    label: "Price Catalog",
-    shortLabel: "Catalog",
-    icon: "catalog",
-    permissions: ["catalog.view"],
-  },
-  {
-    href: "/packages",
-    label: "Backdrop Packages",
-    shortLabel: "Packages",
-    icon: "packages",
-    permissions: ["catalog.view"],
-  },
-  {
-    href: "/expenses",
-    label: "Expenses",
-    icon: "expenses",
-    // The Bookkeeper categorises them for the BIR filing report; the
-    // Owner records and pays them (Spec 3).
-    permissions: ["expenses.manage", "expenses.categorize"],
-  },
-  {
-    href: "/assets",
-    label: "Equipment",
-    icon: "reports",
-    permissions: ["catalog.view"],
-  },
-  {
-    href: "/suppliers",
-    label: "Suppliers",
-    icon: "suppliers",
-    permissions: ["suppliers.view"],
-  },
-  {
-    href: "/settings",
-    label: "Settings",
-    shortLabel: "Settings",
-    icon: "settings",
-    // Owner-only, exactly as before the split — every sub-page still
-    // calls requireOwner on the server.
-    permissions: ["settings.manage"],
-    primary: true,
-    children: SETTINGS_SECTIONS,
+    kind: "link",
+    link: {
+      href: "/settings",
+      label: "Settings",
+      shortLabel: "Settings",
+      icon: "settings",
+      // Owner-only; every sub-page still calls requireOwner server-side.
+      permissions: ["settings.manage"],
+      primary: true,
+      children: SETTINGS_SECTIONS,
+    },
   },
 ];
+
+/**
+ * The nav this user should actually see.
+ *
+ * A group whose every link is hidden disappears entirely rather than
+ * leaving a heading that expands into nothing — which is how Delivery
+ * Staff end up with just Dashboard, Bookings, and Calendar.
+ */
+export function visibleNav(
+  principal: Principal,
+  structure: readonly NavEntry[] = NAV_STRUCTURE,
+): NavEntry[] {
+  const visible: NavEntry[] = [];
+
+  for (const entry of structure) {
+    if (entry.kind === "link") {
+      if (canAny(principal, entry.link.permissions)) visible.push(entry);
+      continue;
+    }
+
+    const items = entry.group.items.filter((item) =>
+      canAny(principal, item.permissions),
+    );
+
+    if (items.length > 0) {
+      visible.push({ kind: "group", group: { ...entry.group, items } });
+    }
+  }
+
+  return visible;
+}
+
+/** Every link in the structure, flattened — used by the bottom bar. */
+export function flattenNav(structure: readonly NavEntry[]): NavLink[] {
+  return structure.flatMap((entry) =>
+    entry.kind === "link" ? [entry.link] : [...entry.group.items],
+  );
+}
+
+/** True when the path is this link's page, or one nested beneath it. */
+export function isActiveHref(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * The group holding the current page, so it can be opened on arrival.
+ * Null when the page is a top-level link, or nothing matches.
+ */
+export function activeGroupId(
+  structure: readonly NavEntry[],
+  pathname: string,
+): string | null {
+  for (const entry of structure) {
+    if (entry.kind !== "group") continue;
+    const hit = entry.group.items.some((item) =>
+      isActiveHref(pathname, item.href),
+    );
+    if (hit) return entry.group.id;
+  }
+  return null;
+}

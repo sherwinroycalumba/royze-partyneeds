@@ -4,20 +4,24 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import type { NavItem } from "@/lib/nav";
+import {
+  activeGroupId,
+  flattenNav,
+  isActiveHref,
+  type NavEntry,
+  type NavGroup,
+  type NavLink as NavLinkModel,
+} from "@/lib/nav";
 import { signOutAction } from "@/lib/auth/actions";
 import { BrandLock } from "@/components/brand/logo";
 import { NavIcon } from "./icons";
+import { useOpenGroups } from "./nav-state";
 
 export type ShellUser = {
   name: string;
   email: string;
   roleLabel: string;
 };
-
-function isActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -26,21 +30,79 @@ function initials(name: string): string {
 }
 
 export function AppShell({
-  items,
+  entries,
   user,
+  userKey,
   businessName,
   logoUrl,
   children,
 }: {
-  items: NavItem[];
+  entries: NavEntry[];
   user: ShellUser;
+  /** Stable per-user id, used to namespace the remembered state. */
+  userKey: string;
   businessName: string;
   logoUrl: string | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const primary = items.filter((item) => item.primary).slice(0, 4);
+
+  const primary = flattenNav(entries)
+    .filter((link) => link.primary)
+    .slice(0, 4);
+
+  const openGroupId = activeGroupId(entries, pathname);
+  const [remembered, remember] = useOpenGroups(userKey);
+
+  // The group holding the current page opens on arrival whatever was
+  // remembered, so the page you are on is always visible. Collapsing
+  // it anyway is allowed, but only until you navigate somewhere else —
+  // otherwise the nav would hide the very thing you are looking at.
+  const [collapsedHere, setCollapsedHere] = useState(false);
+  const [lastGroup, setLastGroup] = useState(openGroupId);
+
+  if (lastGroup !== openGroupId) {
+    setLastGroup(openGroupId);
+    setCollapsedHere(false);
+  }
+
+  function isExpanded(group: NavGroup): boolean {
+    if (group.id === openGroupId) return !collapsedHere;
+    return remembered[group.id] ?? false;
+  }
+
+  function toggleGroup(group: NavGroup): void {
+    const next = !isExpanded(group);
+    if (group.id === openGroupId) setCollapsedHere(!next);
+    // Remembered either way, so the choice survives to the next visit.
+    remember(group.id, next);
+  }
+
+  const nav = (onNavigate?: () => void) => (
+    <>
+      {entries.map((entry) =>
+        entry.kind === "link" ? (
+          <SidebarLink
+            key={entry.link.href}
+            item={entry.link}
+            active={isActiveHref(pathname, entry.link.href)}
+            onNavigate={onNavigate}
+          />
+        ) : (
+          <NavGroupSection
+            key={entry.group.id}
+            group={entry.group}
+            expanded={isExpanded(entry.group)}
+            containsActive={entry.group.id === openGroupId}
+            onToggle={() => toggleGroup(entry.group)}
+            pathname={pathname}
+            onNavigate={onNavigate}
+          />
+        ),
+      )}
+    </>
+  );
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
@@ -50,14 +112,8 @@ export function AppShell({
           <BrandLock businessName={businessName} logoUrl={logoUrl} />
         </div>
 
-        <nav className="flex-1 space-y-1 p-3" aria-label="Main">
-          {items.map((item) => (
-            <SidebarLink
-              key={item.href}
-              item={item}
-              active={isActive(pathname, item.href)}
-            />
-          ))}
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3" aria-label="Main">
+          {nav()}
         </nav>
 
         <UserPanel user={user} />
@@ -128,15 +184,12 @@ export function AppShell({
               </button>
             </div>
 
-            <nav className="flex-1 space-y-1 overflow-y-auto p-3" aria-label="Main">
-              {items.map((item) => (
-                <SidebarLink
-                  key={item.href}
-                  item={item}
-                  active={isActive(pathname, item.href)}
-                  onNavigate={() => setMenuOpen(false)}
-                />
-              ))}
+            {/* Same grouping as the sidebar — one mental model. */}
+            <nav
+              className="flex-1 space-y-1 overflow-y-auto p-3"
+              aria-label="Main"
+            >
+              {nav(() => setMenuOpen(false))}
             </nav>
 
             <UserPanel user={user} />
@@ -158,7 +211,7 @@ export function AppShell({
           aria-label="Quick navigation"
         >
           {primary.map((item) => {
-            const active = isActive(pathname, item.href);
+            const active = isActiveHref(pathname, item.href);
             return (
               <Link
                 key={item.href}
@@ -179,21 +232,100 @@ export function AppShell({
   );
 }
 
+/**
+ * A collapsible group of links. The heading is a button, not a link:
+ * a group is not a destination, and making it one would navigate
+ * somewhere just because somebody wanted to see what was inside.
+ */
+function NavGroupSection({
+  group,
+  expanded,
+  containsActive,
+  onToggle,
+  pathname,
+  onNavigate,
+}: {
+  group: NavGroup;
+  expanded: boolean;
+  containsActive: boolean;
+  onToggle: () => void;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors ${
+          // A collapsed group holding the current page still shows it
+          // is the one you are in.
+          containsActive && !expanded
+            ? "bg-brand-50 text-brand-700"
+            : "text-ink-700 hover:bg-ink-100 hover:text-ink-900"
+        }`}
+      >
+        <NavIcon name={group.icon} />
+        <span className="flex-1 text-left">{group.label}</span>
+        <svg
+          className={`size-4 shrink-0 text-ink-500 transition-transform ${
+            expanded ? "rotate-90" : ""
+          }`}
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={2}
+          stroke="currentColor"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <ul className="mt-1 ml-5 space-y-0.5 border-l border-ink-200 pl-3">
+          {group.items.map((item) => {
+            const active = isActiveHref(pathname, item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={onNavigate}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm transition-colors ${
+                    active
+                      ? "bg-brand-50 font-semibold text-brand-700"
+                      : "text-ink-600 hover:bg-ink-100 hover:text-ink-900"
+                  }`}
+                >
+                  <NavIcon name={item.icon} className="size-4 shrink-0" />
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** A top-level link, which may carry its own sub-sections (Settings). */
 function SidebarLink({
   item,
   active,
   onNavigate,
 }: {
-  item: NavItem;
+  item: NavLinkModel;
   active: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
 
-  // Open by default whenever the user is inside the group, so the
-  // section they are editing is always in view. An explicit toggle
-  // overrides that until they navigate in or out of the group, which
-  // clears it — otherwise a collapse would stick across navigations.
+  // Open by default whenever the user is inside the section, so what
+  // they are editing is always in view. An explicit toggle overrides
+  // that until they navigate in or out, which clears it — otherwise a
+  // collapse would stick across navigations.
   const [override, setOverride] = useState<boolean | null>(null);
   const [wasActive, setWasActive] = useState(active);
 
@@ -208,7 +340,7 @@ function SidebarLink({
     <Link
       href={item.href}
       onClick={onNavigate}
-      // The parent of an open group is a route to its first section,
+      // The parent of an open section is a route to its first page,
       // not the current page — only leaves claim aria-current.
       aria-current={active && !item.children ? "page" : undefined}
       className={`flex min-h-11 flex-1 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors ${
@@ -251,7 +383,7 @@ function SidebarLink({
       </div>
 
       {expanded && (
-        <ul className="mt-1 space-y-0.5 border-l border-ink-200 pl-3 ml-5">
+        <ul className="mt-1 ml-5 space-y-0.5 border-l border-ink-200 pl-3">
           {item.children.map((child) => {
             const childActive = pathname === child.href;
             return (

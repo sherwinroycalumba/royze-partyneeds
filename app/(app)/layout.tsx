@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
 import { getBusinessSettings, requireUser } from "@/lib/auth/dal";
-import { canAny, ROLE_LABELS } from "@/lib/auth/permissions";
-import { NAV_ITEMS } from "@/lib/nav";
+import { ROLE_LABELS } from "@/lib/auth/permissions";
+import { visibleNav } from "@/lib/nav";
 import { AppShell } from "@/components/shell/app-shell";
 
 /**
@@ -14,14 +14,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const profile = await requireUser();
   const settings = await getBusinessSettings();
 
-  // The nav shows only what this user is actually allowed to open.
-  const items = NAV_ITEMS.filter((item) =>
-    canAny(profile, item.permissions),
-  );
+  // The nav shows only what this user is actually allowed to open, and
+  // a group whose every link is hidden disappears with it.
+  const entries = visibleNav(profile);
 
   return (
     <AppShell
-      items={[...items]}
+      entries={entries}
+      userKey={profile.id}
       user={{
         name: profile.full_name || profile.email,
         email: profile.email,

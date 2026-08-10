@@ -255,7 +255,7 @@ lib/
     payment-accounts.ts  account rules and document ordering (pure, tested)
     actions.ts     server actions ONLY
   suppliers/actions.ts   server actions ONLY
-  nav.ts           sidebar model, incl. the Settings sub-sections
+  nav.ts           grouped sidebar model + role filtering (pure, tested)
   supabase/
     server.ts      cookie-bound client, runs as the user (RLS applies)
     client.ts      browser client
@@ -451,6 +451,22 @@ bank accounts. Only the ones marked active print on quotations and rental
 agreements, so a closed account stays on file for reference without ever
 being quoted. `activeAccounts` / `accountsByChannel` in
 `lib/settings/payment-accounts.ts` are what documents must render through.
+
+**The sidebar is grouped, and the groups are honest.** Thirteen
+destinations in a flat list is unreadable on a phone, so everything except
+Dashboard and Settings sits in a collapsible group — Sales & Bookings,
+Catalog & Assets, Contacts, Finance. `visibleNav` filters links by permission
+and drops any group left with nothing in it, so Delivery Staff see exactly
+Dashboard, Bookings, and Calendar rather than headings that expand into
+nothing. The group holding the current page opens on arrival whatever was
+remembered; every other group's state is remembered per user in
+`localStorage`, read through `useSyncExternalStore` so the server render and
+the first client render agree.
+
+A consequence worth knowing: Delivery Staff no longer hold `catalog.view`.
+Booking lines carry their own snapshotted descriptions, so a driver never
+needs the price list — and a nav that hid a page they could still open by
+typing the URL would be lying.
 
 **Settings is seven routes, not one page.** `SETTINGS_SECTIONS` in
 `lib/nav.ts` is the single source for the sidebar sub-links, each page's
