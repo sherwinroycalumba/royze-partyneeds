@@ -251,6 +251,15 @@ export const NAV_STRUCTURE: readonly NavEntry[] = [
           // The Bookkeeper's whole job (Spec 3).
           permissions: ["reports.financial.view"],
         },
+        {
+          href: "/audit",
+          label: "Audit Trail",
+          icon: "users",
+          // Owner and Bookkeeper — it lives here rather than under
+          // Settings because the Bookkeeper needs it and has no
+          // settings access.
+          permissions: ["audit.view"],
+        },
       ],
     },
   },

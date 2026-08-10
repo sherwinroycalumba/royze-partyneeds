@@ -147,7 +147,7 @@ npm run dev      # http://localhost:3000
 | `npm run test:watch` | Tests in watch mode |
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run lint` | ESLint |
-| `npm run seed` | Seed owner, demo users, and settings |
+| `npm run seed` | Seed owner, catalog, and — with `SEED_DEMO_USERS=true` — demo staff and a week of operations |
 | `npm run preview:pdf` | Render a sample quotation PDF to `.preview/` |
 
 ---
@@ -192,6 +192,7 @@ app/
     expenses/      spending, categories, and the payables queue
     assets/        the equipment register and overdue returns
     reports/       the eight reports; export/ returns CSV or PDF
+    audit/         the append-only trail, filtered by area and date
     settings/      business, payments, delivery, defaults,
                    agreement, expenses, users — one route each
 lib/
@@ -273,7 +274,8 @@ lib/
   forms.ts         FormData readers shared by every server action
   money.ts         integer-centavo arithmetic
   date.ts          Asia/Manila formatting
-  audit.ts         append-only audit trail
+  audit.ts         append-only audit trail (writes)
+  audit-log.ts     reading it: domains, notable actions (pure, tested)
   storage.ts       file upload abstraction (swap for S3 later)
 proxy.ts           session refresh + optimistic redirect (was middleware)
 supabase/migrations/  ordered, idempotent SQL
@@ -477,6 +479,16 @@ a number into text. Any value that starts `=`, `+`, `-`, or `@` is prefixed
 with an apostrophe: a payee named `=cmd|…` is a real attack on whoever opens
 the file, and one character prevents it.
 
+**The audit trail is readable, not just written.** Every write has appended an
+entry since Milestone 1, but a few thousand rows of `booking.update` answer
+nothing. `/audit` groups entries by area and can narrow to the ones that move
+money, override a rule, or remove something — overrides, voids, rejections,
+cancellations, write-offs, stock adjustments, password resets. Those are not
+"suspicious": every one is a legitimate action. They are simply what an owner
+scans for when reconciling a month or wondering why a number changed. The
+table has no UPDATE or DELETE policy, so nothing there can be altered —
+including by the owner.
+
 **Payment accounts.** The business can hold any number of GCash, Maya, and
 bank accounts. Only the ones marked active print on quotations and rental
 agreements, so a closed account stays on file for reference without ever
@@ -521,18 +533,71 @@ verified, red = overdue, amber = pending.
 ## Deployment
 
 Deploys as a standard Next.js app. Vercel is the simplest target since the
-database and storage are already hosted by Supabase:
+database and storage are already hosted by Supabase.
+
+### 1. Create the production Supabase project
+
+A separate project from the one you develop against — the seed creates real
+accounts and the app writes real money records.
+
+### 2. Apply the migrations, in order
+
+Paste `supabase/migrations/0001` … `0010` into the SQL Editor one at a time,
+or `npx supabase db push` if you have the CLI linked. They are ordered and
+idempotent, and no migration references anything a later one creates, so a
+clean run in numeric order is all that is needed.
+
+**Check each one reported success before moving on.** The SQL Editor runs a
+script as a single transaction: one failing statement rolls the whole file
+back, leaving no trace that it was attempted. If the app later complains that
+a table is missing "in the schema cache", an earlier migration silently rolled
+back.
+
+### 3. Deploy the app
 
 1. Push the repo to GitHub and import it into Vercel.
 2. Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and
    `SUPABASE_SERVICE_ROLE_KEY` as environment variables. Mark the service-role
-   key as a **server-side** variable.
-3. Apply the migrations against the production project (step 3 above).
-4. Run the seed once against production with the production `.env`.
+   key as a **server-side** variable — it bypasses RLS.
 
 A VPS works equally well: `npm run build && npm start` behind a reverse proxy.
 
+### 4. Seed the owner
+
+```bash
+npm run seed
+```
+
+against the production environment, **without** `SEED_DEMO_USERS` — you do not
+want demo staff accounts or fake bookings in the real system.
+
+### 5. First-run checklist
+
+In this order, because each step depends on the one before:
+
+1. Sign in as the owner and change the temporary password.
+2. **Settings → Business Profile** — address, contact numbers, TIN, logo.
+   These print on every quotation and agreement.
+3. **Settings → Payment Channels** — your GCash, Maya, and bank accounts, and
+   the cash instructions. A document generated before this prints with no way
+   for the customer to pay you.
+4. **Settings → Delivery Fees** — the free-delivery area name and any
+   suggested fees.
+5. **Price Catalog** — adjust the seeded prices, which are starting points,
+   and set `quantity_owned` for each rental item. The availability engine is
+   only as honest as that number.
+6. **Settings → Users** — create the real staff accounts.
+7. Make one quotation, download the PDF, and check it shows your details and
+   your payment channels. That single document exercises the branding, the
+   numbering, the fonts, and the payment settings in one go.
+
 **Never commit `.env.local`.** It is already gitignored.
+
+### Backups
+
+Supabase takes daily backups on paid plans. On the free tier, the money
+records — `bookings`, `payments`, `orders`, `expenses` — are the ones worth
+exporting periodically; the reports screen exports each as CSV.
 
 ---
 
@@ -548,7 +613,34 @@ Built in the milestone order from `Spec.md` §7.
 - [x] **6 — Quick-sale orders + inventory decrement**
 - [x] **7 — Expenses, payables, asset monitoring**
 - [x] **8 — Dashboard + reports + CSV/PDF export**
-- [ ] 9 — Seed data, audit polish, deployment guide
+- [x] **9 — Seed data, audit polish, deployment guide**
+
+### Acceptance criteria (Spec §8)
+
+Every criterion is implemented. The right-hand column is honest about what
+has been **exercised against a real database** versus what is covered by
+tests and a build only — the difference matters, because most of the bugs
+found during this build were only visible when the app met real data.
+
+| Criterion | Where | Verified live |
+|---|---|---|
+| Owner creates staff accounts; role restrictions enforced | Settings → Users, `lib/auth/dal.ts` | yes |
+| Quotation on a phone, A4 PDF in under 2 minutes | `/quotations/new`, `[id]/pdf` | yes — `QT-2026-0001` |
+| Quotation converts to a booking in one click; appears on the calendar | Convert button, `/calendar` | yes — `BK-2026-0001` |
+| Confirmed needs a signed agreement **and** verified payments ≥ 50%, owner override logged | `lib/bookings/status.ts` | not yet |
+| Owner sees pending payments and verifies in one tap | Dashboard queue, `/payments` | not yet |
+| Double-booking past owned quantities warns | `lib/bookings/availability.ts` | not yet |
+| Backdrop package reserves components, decrements consumables, shows as a calendar setup | `expandPackages`, `/calendar` | not yet |
+| Delivery staff update status on a phone; damage auto-charges replacement value | `/bookings/[id]`, `lib/bookings/returns.ts` | not yet |
+| Quick sale under 30 seconds, stock decreases | `/orders/new` | not yet |
+| Free-delivery toggle zeroes the fee and prints "FREE Delivery & Pickup" | `deliveryFeeCharged`, both PDFs | partly — renders correctly in preview |
+| P&L, daily sales, receivables aging, payables for any range, CSV and PDF | `/reports` | not yet |
+| All money reconciles: total = verified payments + balance due | `summarisePayments`, tested | tested, not live |
+
+The unverified rows are not known to be broken — they are covered by 398
+tests and a clean production build. They are simply the paths nobody has
+walked with real records yet, and this table is the shortest route to
+walking them.
 
 ### Accounting basis (for the bookkeeper)
 
