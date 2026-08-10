@@ -258,7 +258,7 @@ function NavGroupSection({
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors ${
+        className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition-colors ${
           // A collapsed group holding the current page still shows it
           // is the one you are in.
           containsActive && !expanded
@@ -266,8 +266,15 @@ function NavGroupSection({
             : "text-ink-700 hover:bg-ink-100 hover:text-ink-900"
         }`}
       >
-        <NavIcon name={group.icon} />
-        <span className="flex-1 text-left">{group.label}</span>
+        <NavIcon name={group.icon} className="size-5 shrink-0" />
+        {/* `mr-auto` rather than `flex-1`, so the label is only as wide
+            as its text and the chevron is pushed right by the margin.
+            A full-width label would sit wherever `text-align` says, and
+            a button inherits `center` from the browser's own
+            stylesheet — which put every group heading in the middle of
+            the sidebar. Alignment here comes from the layout, so it
+            holds even if a text utility is missing. */}
+        <span className="mr-auto min-w-0 truncate">{group.label}</span>
         <svg
           className={`size-4 shrink-0 text-ink-500 transition-transform ${
             expanded ? "rotate-90" : ""
@@ -349,7 +356,7 @@ function SidebarLink({
           : "text-ink-700 hover:bg-ink-100 hover:text-ink-900"
       }`}
     >
-      <NavIcon name={item.icon} />
+      <NavIcon name={item.icon} className="size-5 shrink-0" />
       {item.label}
     </Link>
   );
