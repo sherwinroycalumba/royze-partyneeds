@@ -78,6 +78,9 @@ Open **SQL Editor**, paste the contents of each file in order, and run:
 5. `0005_quotations.sql` — quotations, their line items, and the shared
    `PREFIX-YYYY-####` document counter that bookings, agreements, and
    orders will draw on too
+6. `0006_bookings.sql` — bookings, their line items and package
+   component rows, the `reserved_quantities` availability aggregate,
+   and `catalog_items.damaged_quantity`
 
 **Option B — Supabase CLI:**
 
@@ -170,6 +173,8 @@ app/
                    customers, suppliers
     quotations/    list, builder, detail; [id]/pdf is a route handler
                    that returns the PDF file itself
+    bookings/      list, builder, detail, the delivery-staff return sheet
+    calendar/      month, week, and day views of the whole team's work
     settings/      business, payments, delivery, defaults,
                    agreement, expenses, users — one route each
 lib/
@@ -187,10 +192,22 @@ lib/
   customers/
     matching.ts    phone normalisation and duplicate detection (pure, tested)
     actions.ts     server actions ONLY
+  documents/
+    totals.ts      line, delivery, discount, and downpayment maths shared
+                   by every priced document (pure, tested)
   quotations/
-    totals.ts      line, delivery, discount, and downpayment maths (pure, tested)
     status.ts      lifecycle, derived expiry, transitions (pure, tested)
     numbering.ts   QT-YYYY-#### shape and safe PDF filenames (pure, tested)
+    validation.ts  what makes a quotation savable (pure, tested)
+    actions.ts     server actions ONLY
+  bookings/
+    status.ts      the nine statuses and the Confirmed gate (pure, tested)
+    availability.ts  stock maths and the overbooking verdict (pure, tested)
+    windows.ts     the date range stock is held for (pure, tested)
+    returns.ts     damage charges and inventory effects (pure, tested)
+    calendar.ts    month/week/day grid maths (pure, tested)
+    validation.ts  what makes a booking savable (pure, tested)
+    stock.ts       the one database half of availability, server-only
     actions.ts     server actions ONLY
   pdf/
     theme.ts       A4 page styles, brand palette, bundled font
@@ -287,6 +304,48 @@ reports can group by item. Editing a price in the catalog must never restate a
 quotation the customer is already holding. For the same reason an accepted
 quotation is frozen — it is the record of what was agreed.
 
+**Availability is answered by the database, judged in TypeScript.** The
+overlap aggregate (`reserved_quantities`) runs in Postgres, because summing
+every competing booking in the app would mean pulling them all across the
+wire. Everything that decides whether the answer is a *problem* —
+owned − damaged − reserved, per item, totalled across a cart —
+is pure and tested in `lib/bookings/availability.ts`. A backdrop package
+contributes its rental components individually, which is what stops two
+backdrop bookings on one day from quietly sharing a single arch. Going past
+the stock on hand is blocked for everyone and overridable only by the Owner,
+with a reason, which is logged.
+
+**A booking's window is the whole job, not the event day.** Stock is held
+from the earliest of setup and delivery through the latest of teardown and
+pickup, and every instant is folded to a *Manila* day first: a 9pm delivery
+on the 28th is the 29th in UTC, and a chair that left the yard on the 28th
+must not read as free that day. `datetime-local` inputs are read as Manila
+wall-clock time for the same reason — otherwise the phone's own timezone
+would silently decide what "2:00 PM" meant.
+
+**The Confirmed gate.** A booking cannot be confirmed until the rental
+agreement is signed *and* verified payments cover the downpayment. Both
+blockers are reported at once, so staff chasing a customer know they want a
+signature *and* the deposit rather than discovering the second requirement
+after satisfying the first. The Owner may override with a logged reason.
+Until Milestone 5 lands agreements and payments, nothing is verified and the
+override is the only way through — that is the correct behaviour, not a gap.
+
+**Package components are stored, not just summarised.** A backdrop package
+becomes a priced parent line plus one ₱0 component row per part. The
+components are what the availability engine reserves and what consumables
+come out of; the customer-facing documents print only the parent. Components
+are rebuilt from the saved package on every write, so they always match the
+definition the catalog vouches for.
+
+**Returns raise charges.** Delivery Staff record each line as fine, damaged,
+or lost. Anything damaged or lost raises a charge at the catalog's
+replacement value — the figure the agreement says the customer agreed to —
+and re-recording a return replaces that charge rather than stacking a second
+one. Damaged stock stays owned but stops being available; lost stock reduces
+what the business owns. Marking damaged items repaired or written off is
+Milestone 7.
+
 **Payment accounts.** The business can hold any number of GCash, Maya, and
 bank accounts. Only the ones marked active print on quotations and rental
 agreements, so a closed account stays on file for reference without ever
@@ -337,7 +396,7 @@ Built in the milestone order from `Spec.md` §7.
 - [x] **1 — Scaffold, auth, roles, settings, user management**
 - [x] **2 — Price catalog, customers, suppliers**
 - [x] **3 — Quotations + PDF engine**
-- [ ] 4 — Bookings, availability engine, statuses, calendar
+- [x] **4 — Bookings, availability engine, statuses, calendar**
 - [ ] 5 — Rental agreements, payments, verification, 50% confirmation rule
 - [ ] 6 — Quick-sale orders + inventory decrement
 - [ ] 7 — Expenses, payables, asset monitoring

@@ -23,12 +23,12 @@ import {
   isQuotationStatus,
   QUOTATION_STATUS_LABELS,
 } from "./status";
+import { documentTotals } from "@/lib/documents/totals";
 import {
-  quotationTotals,
   validateQuotation,
-  type LineDraft,
   type QuotationDraft,
-} from "./totals";
+  type QuotationLineDraft,
+} from "./validation";
 
 export type QuotationState = FormState;
 
@@ -53,7 +53,7 @@ function isLineType(value: string): value is QuotationLineType {
 }
 
 /** A line as it arrives from the builder, before it is validated. */
-type ParsedLine = LineDraft & {
+type ParsedLine = QuotationLineDraft & {
   catalog_item_id: string | null;
   package_id: string | null;
   component_summary: string;
@@ -309,7 +309,7 @@ export async function createQuotationAction(
     return { error: `Quotation saved, but its items did not: ${lineError}` };
   }
 
-  const totals = quotationTotals(parsed.draft);
+  const totals = documentTotals(parsed.draft);
 
   await logAudit({
     action: "quotation.create",

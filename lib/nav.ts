@@ -101,11 +101,26 @@ export const NAV_ITEMS: readonly NavItem[] = [
     primary: true,
   },
   {
+    href: "/bookings",
+    label: "Bookings",
+    icon: "bookings",
+    permissions: ["bookings.view"],
+    primary: true,
+  },
+  {
+    href: "/calendar",
+    label: "Calendar",
+    icon: "calendar",
+    // The whole team's source of truth for the day (Spec 4.10) — this
+    // is what replaced the Messenger announcements.
+    permissions: ["calendar.view"],
+    primary: true,
+  },
+  {
     href: "/customers",
     label: "Customers",
     icon: "customers",
     permissions: ["customers.view"],
-    primary: true,
   },
   {
     href: "/quotations",
@@ -122,7 +137,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     shortLabel: "Catalog",
     icon: "catalog",
     permissions: ["catalog.view"],
-    primary: true,
   },
   {
     href: "/packages",

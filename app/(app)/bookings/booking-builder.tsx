@@ -4,18 +4,23 @@ import { useActionState, useMemo, useState } from "react";
 import Link from "next/link";
 
 import {
-  createQuotationAction,
-  updateQuotationAction,
-  type QuotationState,
-} from "@/lib/quotations/actions";
-import { documentTotals, lineTotal } from "@/lib/documents/totals";
-import type { QuotationLineDraft } from "@/lib/quotations/validation";
+  createBookingAction,
+  updateBookingAction,
+  type BookingState,
+} from "@/lib/bookings/actions";
+import type { BookingLineDraft } from "@/lib/bookings/validation";
 import type { PickerOption } from "@/lib/catalog/picker";
-import { centavosToDecimalString, formatPeso, parsePesoInput } from "@/lib/money";
+import { documentTotals, lineTotal } from "@/lib/documents/totals";
+import {
+  centavosToDecimalString,
+  formatPeso,
+  parsePesoInput,
+} from "@/lib/money";
 import type {
+  BookingItem,
+  BookingLineType,
   Customer,
-  QuotationItem,
-  QuotationLineType,
+  Profile,
 } from "@/lib/supabase/database.types";
 import {
   Banner,
@@ -27,29 +32,22 @@ import {
 import { Field, Select, TextArea, TextInput } from "@/components/ui/field";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
+import type { BookingBuilderDefaults } from "./builder-data";
 
 /**
- * The quotation builder (Spec 4.3).
+ * The booking builder (Spec 4.4).
  *
- * Totals are computed here with the very same pure functions the server
- * action and the PDF use, so the figure staff read out to a customer on
- * the phone is the figure that gets saved and printed.
+ * Totals come from the same pure functions the server action and the
+ * documents use. The availability check is deliberately *not* mirrored
+ * here — it depends on what every other booking holds, so the server
+ * is the only place that can answer it honestly, and it answers on
+ * save.
  */
 
-/** Everything the builder needs that does not come from the form. */
-export type BuilderDefaults = {
-  issue_date: string;
-  valid_until: string;
-  downpayment_percent: number;
-  free_delivery_area: string;
-  suggestedFees: { area: string; fee_centavos: number }[];
-};
-
 type Row = {
-  /** Stable across re-renders so React keys survive a row removal. */
   uid: number;
   optionKey: string;
-  line_type: QuotationLineType;
+  line_type: BookingLineType;
   ref: string;
   description: string;
   component_summary: string;
@@ -74,10 +72,15 @@ function blankRow(): Row {
   };
 }
 
-function rowsFromItems(items: readonly QuotationItem[]): Row[] {
-  if (items.length === 0) return [blankRow()];
+function rowsFromItems(items: readonly BookingItem[]): Row[] {
+  // Component rows are rebuilt from the package on every save, so the
+  // editor only ever shows the lines a human actually chose.
+  const parents = items.filter(
+    (item) => !item.is_component && item.line_type !== "damage_charge",
+  );
+  if (parents.length === 0) return [blankRow()];
 
-  return items.map((item) => ({
+  return parents.map((item) => ({
     uid: nextUid++,
     optionKey:
       item.line_type === "package"
@@ -85,7 +88,7 @@ function rowsFromItems(items: readonly QuotationItem[]): Row[] {
           ? `package:${item.package_id}`
           : ""
         : item.catalog_item_id
-          ? `item:${item.catalog_item_id}`
+          ? `item:${item.catalog_item_id}${item.line_type === "sale" ? ":sale" : ""}`
           : "",
     line_type: item.line_type,
     ref: item.package_id ?? item.catalog_item_id ?? "",
@@ -100,7 +103,6 @@ function rowsFromItems(items: readonly QuotationItem[]): Row[] {
   }));
 }
 
-/** Blank reads as ₱0.00; junk reads as 0 so the running total stays sane. */
 function amount(value: string): number {
   const parsed = parsePesoInput(value);
   return parsed === null ? 0 : Math.max(0, parsed);
@@ -111,49 +113,69 @@ function count(value: string): number {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function toLineDraft(row: Row): QuotationLineDraft {
+function toLineDraft(row: Row): BookingLineDraft {
   return {
     line_type: row.line_type,
     description: row.description,
     quantity: count(row.quantity),
     unit_price_centavos: amount(row.unit_price),
     line_discount_centavos: amount(row.discount),
+    is_component: false,
   };
 }
 
-export function QuotationBuilder({
+export type BookingInitial = {
+  customer_id: string;
+  event_date: string;
+  event_start_time: string | null;
+  event_end_time: string | null;
+  /** Already converted to `YYYY-MM-DDTHH:mm` in Manila. */
+  delivery_local: string;
+  pickup_local: string;
+  setup_local: string;
+  teardown_local: string;
+  event_address: string;
+  landmark: string;
+  contact_person_name: string;
+  contact_person_phone: string;
+  occasion: string;
+  theme_motif: string;
+  celebrant_name: string;
+  reference_photo_urls: string[];
+  within_free_delivery_area: boolean;
+  delivery_fee_centavos: number;
+  delivery_fee_override_reason: string;
+  discount_centavos: number;
+  downpayment_percent: number;
+  assigned_delivery_staff: string | null;
+  notes: string;
+  internal_notes: string;
+};
+
+export function BookingBuilder({
   mode,
-  quotationId,
+  bookingId,
   customers,
   options,
+  drivers,
   defaults,
+  isOwner,
   initial,
   initialItems,
 }: {
   mode: "create" | "edit";
-  quotationId?: string;
+  bookingId?: string;
   customers: Customer[];
   options: PickerOption[];
-  defaults: BuilderDefaults;
-  initial?: {
-    customer_id: string;
-    issue_date: string;
-    valid_until: string;
-    event_date: string | null;
-    event_address: string;
-    occasion: string;
-    within_free_delivery_area: boolean;
-    delivery_fee_centavos: number;
-    delivery_fee_override_reason: string;
-    discount_centavos: number;
-    downpayment_percent: number;
-    notes: string;
-    internal_notes: string;
-  };
-  initialItems?: readonly QuotationItem[];
+  drivers: Pick<Profile, "id" | "full_name" | "email">[];
+  defaults: BookingBuilderDefaults;
+  /** Only the Owner may book past the stock on hand (Spec 4.4). */
+  isOwner: boolean;
+  initial?: BookingInitial;
+  initialItems?: readonly BookingItem[];
 }) {
-  const [state, formAction] = useActionState<QuotationState, FormData>(
-    mode === "create" ? createQuotationAction : updateQuotationAction,
+  const [state, formAction] = useActionState<BookingState, FormData>(
+    mode === "create" ? createBookingAction : updateBookingAction,
     {},
   );
 
@@ -173,6 +195,9 @@ export function QuotationBuilder({
   );
   const [downpaymentPercent, setDownpaymentPercent] = useState(
     String(initial?.downpayment_percent ?? defaults.downpayment_percent),
+  );
+  const [photoUrls, setPhotoUrls] = useState<string[]>(() =>
+    initial?.reference_photo_urls?.length ? initial.reference_photo_urls : [""],
   );
 
   const grouped = useMemo(() => {
@@ -197,13 +222,17 @@ export function QuotationBuilder({
     [rows, withinFreeArea, deliveryFee, discount, downpaymentPercent],
   );
 
+  const hasBackdrop = rows.some((row) => row.line_type === "package");
+  // The server rejects an overbooking unless an Owner explains it, so
+  // the box only appears for someone who could actually use it.
+  const shortageBlocked = Boolean(state.error?.includes("Not enough stock"));
+
   function updateRow(uid: number, patch: Partial<Row>) {
     setRows((current) =>
       current.map((row) => (row.uid === uid ? { ...row, ...patch } : row)),
     );
   }
 
-  /** Picking a catalogued item fills in its name and current price. */
   function pickOption(uid: number, optionKey: string) {
     const option = options.find((candidate) => candidate.key === optionKey);
 
@@ -223,26 +252,42 @@ export function QuotationBuilder({
       ref: option.id,
       description: option.label,
       component_summary: option.component_summary,
-      // The catalog price is a starting point — staff may quote another,
-      // and the line stores whatever they settle on.
       unit_price: centavosToDecimalString(option.unit_price_centavos),
     });
   }
 
   return (
     <form action={formAction} className="space-y-5">
-      {mode === "edit" && quotationId && (
-        <input type="hidden" name="quotation_id" value={quotationId} />
+      {mode === "edit" && bookingId && (
+        <input type="hidden" name="booking_id" value={bookingId} />
       )}
 
       {state.error && <Banner tone="error">{state.error}</Banner>}
       {state.success && <Banner tone="success">{state.success}</Banner>}
 
+      {shortageBlocked && isOwner && (
+        <Card>
+          <CardBody>
+            <Field
+              label="Reason for booking past available stock"
+              htmlFor="availability_override_reason"
+              hint="Owner only. Saved to the audit trail."
+            >
+              <TextInput
+                id="availability_override_reason"
+                name="availability_override_reason"
+                placeholder="e.g. borrowing 20 chairs from Ate Let"
+              />
+            </Field>
+          </CardBody>
+        </Card>
+      )}
+
       {/* ── Customer and event ───────────────────────────────── */}
       <Card>
         <CardHeader
           title="Customer and event"
-          description="Who it is for and when — the event date carries over when this becomes a booking."
+          description="The event date is what the calendar and the availability check both work from."
         />
         <CardBody className="space-y-4">
           <Field label="Customer" htmlFor="customer_id" required>
@@ -262,63 +307,128 @@ export function QuotationBuilder({
             </Select>
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Quotation date" htmlFor="issue_date" required>
-              <TextInput
-                id="issue_date"
-                name="issue_date"
-                type="date"
-                defaultValue={initial?.issue_date ?? defaults.issue_date}
-                required
-              />
-            </Field>
-
-            <Field
-              label="Valid until"
-              htmlFor="valid_until"
-              hint="After this date the quotation shows as expired."
-              required
-            >
-              <TextInput
-                id="valid_until"
-                name="valid_until"
-                type="date"
-                defaultValue={initial?.valid_until ?? defaults.valid_until}
-                required
-              />
-            </Field>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Event date" htmlFor="event_date">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Event date" htmlFor="event_date" required>
               <TextInput
                 id="event_date"
                 name="event_date"
                 type="date"
-                defaultValue={initial?.event_date ?? ""}
+                defaultValue={initial?.event_date ?? defaults.event_date}
+                required
               />
             </Field>
 
-            <Field
-              label="Occasion"
-              htmlFor="occasion"
-              hint="e.g. 7th Birthday — Safari theme"
-            >
+            <Field label="Starts" htmlFor="event_start_time">
               <TextInput
-                id="occasion"
-                name="occasion"
-                defaultValue={initial?.occasion ?? ""}
+                id="event_start_time"
+                name="event_start_time"
+                type="time"
+                defaultValue={initial?.event_start_time ?? ""}
+              />
+            </Field>
+
+            <Field label="Ends" htmlFor="event_end_time">
+              <TextInput
+                id="event_end_time"
+                name="event_end_time"
+                type="time"
+                defaultValue={initial?.event_end_time ?? ""}
               />
             </Field>
           </div>
 
-          <Field label="Delivery address" htmlFor="event_address">
+          <Field label="Occasion" htmlFor="occasion">
+            <TextInput
+              id="occasion"
+              name="occasion"
+              placeholder="7th Birthday"
+              defaultValue={initial?.occasion ?? ""}
+            />
+          </Field>
+
+          <Field label="Delivery address" htmlFor="event_address" required>
             <TextArea
               id="event_address"
               name="event_address"
               rows={2}
               defaultValue={initial?.event_address ?? ""}
+              required
             />
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field
+              label="Landmark"
+              htmlFor="landmark"
+              hint="What the driver looks for."
+            >
+              <TextInput
+                id="landmark"
+                name="landmark"
+                defaultValue={initial?.landmark ?? ""}
+              />
+            </Field>
+
+            <Field label="Contact on site" htmlFor="contact_person_name">
+              <TextInput
+                id="contact_person_name"
+                name="contact_person_name"
+                defaultValue={initial?.contact_person_name ?? ""}
+              />
+            </Field>
+
+            <Field label="Their number" htmlFor="contact_person_phone">
+              <TextInput
+                id="contact_person_phone"
+                name="contact_person_phone"
+                inputMode="tel"
+                defaultValue={initial?.contact_person_phone ?? ""}
+              />
+            </Field>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* ── Schedule ─────────────────────────────────────────── */}
+      <Card>
+        <CardHeader
+          title="Delivery and pickup"
+          description="Stock is held from the earliest of setup and delivery through the latest of teardown and pickup."
+        />
+        <CardBody className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Delivery" htmlFor="delivery_at">
+              <TextInput
+                id="delivery_at"
+                name="delivery_at"
+                type="datetime-local"
+                defaultValue={initial?.delivery_local ?? ""}
+              />
+            </Field>
+
+            <Field label="Pickup / return" htmlFor="pickup_at">
+              <TextInput
+                id="pickup_at"
+                name="pickup_at"
+                type="datetime-local"
+                defaultValue={initial?.pickup_local ?? ""}
+              />
+            </Field>
+          </div>
+
+          <Field label="Assigned to" htmlFor="assigned_delivery_staff">
+            <Select
+              id="assigned_delivery_staff"
+              name="assigned_delivery_staff"
+              defaultValue={initial?.assigned_delivery_staff ?? ""}
+            >
+              <option value="">Not assigned yet</option>
+              {drivers.map((driver) => (
+                <option key={driver.id} value={driver.id}>
+                  {driver.full_name || driver.email}
+                </option>
+              ))}
+            </Select>
           </Field>
         </CardBody>
       </Card>
@@ -327,7 +437,7 @@ export function QuotationBuilder({
       <Card>
         <CardHeader
           title="Items"
-          description="Pick from the catalog, or type a one-off line. Prices are copied in and stay fixed on this quotation."
+          description="Rental items, sale items, and backdrop packages in any combination. A package reserves each of its parts."
         />
         <CardBody className="space-y-4">
           {rows.map((row, index) => (
@@ -357,16 +467,101 @@ export function QuotationBuilder({
         </CardBody>
       </Card>
 
+      {/* ── Backdrop details, only when one is booked ────────── */}
+      {hasBackdrop && (
+        <Card>
+          <CardHeader
+            title="Backdrop details"
+            description="A backdrop needs a styling crew on site, so it gets its own schedule and its own brief."
+          />
+          <CardBody className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Setup" htmlFor="setup_at">
+                <TextInput
+                  id="setup_at"
+                  name="setup_at"
+                  type="datetime-local"
+                  defaultValue={initial?.setup_local ?? ""}
+                />
+              </Field>
+
+              <Field label="Teardown" htmlFor="teardown_at">
+                <TextInput
+                  id="teardown_at"
+                  name="teardown_at"
+                  type="datetime-local"
+                  defaultValue={initial?.teardown_local ?? ""}
+                />
+              </Field>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Theme / colour motif"
+                htmlFor="theme_motif"
+                hint="e.g. Safari, sage green and cream"
+              >
+                <TextInput
+                  id="theme_motif"
+                  name="theme_motif"
+                  defaultValue={initial?.theme_motif ?? ""}
+                />
+              </Field>
+
+              <Field
+                label="Celebrant"
+                htmlFor="celebrant_name"
+                hint="Printed on the banner."
+              >
+                <TextInput
+                  id="celebrant_name"
+                  name="celebrant_name"
+                  defaultValue={initial?.celebrant_name ?? ""}
+                />
+              </Field>
+            </div>
+
+            <div className="space-y-2">
+              <span className="block text-sm font-medium text-ink-700">
+                Reference photos
+              </span>
+              <p className="text-xs text-ink-500">
+                Links to the peg or design the customer sent.
+              </p>
+              {photoUrls.map((url, index) => (
+                <TextInput
+                  key={index}
+                  name="reference_photo_url"
+                  inputMode="url"
+                  placeholder="https://…"
+                  value={url}
+                  onChange={(event) =>
+                    setPhotoUrls((current) =>
+                      current.map((existing, position) =>
+                        position === index ? event.target.value : existing,
+                      ),
+                    )
+                  }
+                />
+              ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setPhotoUrls((current) => [...current, ""])}
+              >
+                + Add another link
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
       {/* ── Money ────────────────────────────────────────────── */}
       <Card>
-        <CardHeader
-          title="Delivery, discount, and downpayment"
-          description="Delivery and pickup are free inside your service area (Spec 4.4)."
-        />
+        <CardHeader title="Delivery fee, discount, and downpayment" />
         <CardBody className="space-y-4">
           <label className="flex items-start gap-3 rounded-lg border border-ink-200 p-3">
-            {/* An unchecked box posts nothing, which the server reads
-                as false — exactly the intent. */}
             <input
               type="checkbox"
               name="within_free_delivery_area"
@@ -383,7 +578,7 @@ export function QuotationBuilder({
               </span>
               <span className="block text-xs text-ink-500">
                 Locks the fee to ₱0.00 and prints “FREE Delivery &amp; Pickup”
-                on the PDF.
+                on the documents.
               </span>
             </span>
           </label>
@@ -409,11 +604,7 @@ export function QuotationBuilder({
               />
             </Field>
 
-            <Field
-              label="Discount on the whole quotation"
-              htmlFor="discount"
-              hint="On top of any per-line discounts."
-            >
+            <Field label="Discount on the whole booking" htmlFor="discount">
               <TextInput
                 id="discount"
                 name="discount"
@@ -429,7 +620,7 @@ export function QuotationBuilder({
             <Field
               label="Reason, if this is not the usual fee"
               htmlFor="delivery_fee_override_reason"
-              hint="Logged against the quotation."
+              hint="Logged against the booking."
             >
               <TextInput
                 id="delivery_fee_override_reason"
@@ -442,7 +633,7 @@ export function QuotationBuilder({
           <Field
             label="Downpayment to confirm (%)"
             htmlFor="downpayment_percent"
-            hint="Defaults to the percentage set under Settings."
+            hint="Verified payments must reach this before the booking can be confirmed."
           >
             <TextInput
               id="downpayment_percent"
@@ -497,11 +688,7 @@ export function QuotationBuilder({
       <Card>
         <CardHeader title="Notes" />
         <CardBody className="space-y-4">
-          <Field
-            label="Notes for the customer"
-            htmlFor="notes"
-            hint="Printed on the PDF."
-          >
+          <Field label="Notes" htmlFor="notes">
             <TextArea
               id="notes"
               name="notes"
@@ -513,7 +700,7 @@ export function QuotationBuilder({
           <Field
             label="Internal notes"
             htmlFor="internal_notes"
-            hint="Never printed — for the team only."
+            hint="For the team only."
           >
             <TextArea
               id="internal_notes"
@@ -525,13 +712,13 @@ export function QuotationBuilder({
         </CardBody>
         <CardFooter>
           <Link
-            href={quotationId ? `/quotations/${quotationId}` : "/quotations"}
+            href={bookingId ? `/bookings/${bookingId}` : "/bookings"}
             className={buttonClasses("ghost")}
           >
             Cancel
           </Link>
           <SubmitButton pendingLabel="Saving…">
-            {mode === "create" ? "Save quotation" : "Save changes"}
+            {mode === "create" ? "Save booking" : "Save changes"}
           </SubmitButton>
         </CardFooter>
       </Card>
@@ -559,7 +746,6 @@ function suggestedFeeHint(
   return `Suggested: ${shown}`;
 }
 
-/** One repeatable item row. */
 function LineRow({
   row,
   index,
@@ -582,15 +768,11 @@ function LineRow({
 
   return (
     <div className="space-y-3 rounded-xl border border-ink-200 p-3">
-      {/* Parallel arrays: every row posts one entry per field, so the
-          indexes line up on the server even when a row is removed. */}
+      {/* Parallel arrays: one entry per field per row, so the indexes
+          line up on the server even after a row is removed. */}
       <input type="hidden" name="line_type" value={row.line_type} />
       <input type="hidden" name="line_ref" value={row.ref} />
-      <input
-        type="hidden"
-        name="line_summary"
-        value={row.component_summary}
-      />
+      <input type="hidden" name="line_summary" value={row.component_summary} />
 
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-ink-500">
@@ -632,14 +814,13 @@ function LineRow({
           name="line_description"
           value={row.description}
           onChange={(event) => onChange({ description: event.target.value })}
-          placeholder="What the customer sees on the PDF"
           required
         />
       </Field>
 
       {row.component_summary && (
         <p className="text-xs text-ink-500">
-          Includes: {row.component_summary}
+          Reserves: {row.component_summary}
         </p>
       )}
 

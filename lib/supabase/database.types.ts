@@ -109,6 +109,8 @@ export type CatalogItem = {
   cost_price_centavos: number;
   stock_quantity: number;
   low_stock_threshold: number;
+  /** Out of service until the Owner repairs or writes it off (Spec 4.4). */
+  damaged_quantity: number;
   is_active: boolean;
   created_by: string | null;
   created_at: string;
@@ -250,6 +252,120 @@ export type QuotationItem = {
   sort_order: number;
 };
 
+/** The booking lifecycle (Spec 4.4). */
+export type BookingStatus =
+  | "inquiry"
+  | "quoted"
+  | "reserved"
+  | "confirmed"
+  | "out_for_delivery"
+  | "delivered"
+  | "picked_up"
+  | "completed"
+  | "cancelled";
+
+export type BookingLineType =
+  | "rental"
+  | "sale"
+  | "package"
+  | "custom"
+  /** Raised automatically when an item comes back damaged or lost. */
+  | "damage_charge";
+
+export type ReturnCondition = "pending" | "ok" | "damaged" | "lost";
+
+export type Booking = {
+  id: string;
+  booking_number: string;
+  customer_id: string;
+  status: BookingStatus;
+  /** Set when this booking was converted from a quotation. */
+  source_quotation_id: string | null;
+
+  event_date: string;
+  event_start_time: string | null;
+  event_end_time: string | null;
+  delivery_at: string | null;
+  pickup_at: string | null;
+  setup_at: string | null;
+  teardown_at: string | null;
+
+  /** The window stock is held for — written from `reservationWindow`. */
+  reserved_from: string;
+  reserved_to: string;
+
+  event_address: string;
+  landmark: string;
+  contact_person_name: string;
+  contact_person_phone: string;
+
+  occasion: string;
+  theme_motif: string;
+  celebrant_name: string;
+  reference_photo_urls: string[];
+
+  within_free_delivery_area: boolean;
+  delivery_fee_centavos: number;
+  delivery_fee_override_reason: string;
+  discount_centavos: number;
+  downpayment_percent: number;
+
+  /** Written by the agreement workflow in Milestone 5. */
+  agreement_signed: boolean;
+  agreement_signed_at: string | null;
+  confirmation_override_reason: string;
+  availability_override_reason: string;
+
+  assigned_delivery_staff: string | null;
+
+  notes: string;
+  internal_notes: string;
+
+  reserved_at: string | null;
+  confirmed_at: string | null;
+  delivered_at: string | null;
+  returned_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string;
+
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BookingItem = {
+  id: string;
+  booking_id: string;
+  line_type: BookingLineType;
+  catalog_item_id: string | null;
+  package_id: string | null;
+  /** Set on the component rows that expand under a package line. */
+  parent_item_id: string | null;
+  is_component: boolean;
+
+  description: string;
+  component_summary: string;
+
+  quantity: number;
+  unit_price_centavos: number;
+  line_discount_centavos: number;
+
+  /** Rental stock held for the booking's window. */
+  reserves_stock: boolean;
+  /** Consumables come out of sale stock when the booking is confirmed. */
+  consumes_stock: boolean;
+  stock_consumed: boolean;
+
+  return_condition: ReturnCondition;
+  return_notes: string;
+  damaged_quantity: number;
+  lost_quantity: number;
+  source_item_id: string | null;
+
+  sort_order: number;
+};
+
 export type AuditLogEntry = {
   id: number;
   actor_id: string | null;
@@ -366,6 +482,71 @@ export type Database = {
           },
         ];
       };
+      bookings: {
+        Row: Booking;
+        Insert: Partial<Booking> &
+          Pick<
+            Booking,
+            | "booking_number"
+            | "customer_id"
+            | "event_date"
+            | "reserved_from"
+            | "reserved_to"
+          >;
+        Update: Partial<Booking>;
+        Relationships: [
+          {
+            foreignKeyName: "bookings_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookings_source_quotation_id_fkey";
+            columns: ["source_quotation_id"];
+            isOneToOne: false;
+            referencedRelation: "quotations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookings_assigned_delivery_staff_fkey";
+            columns: ["assigned_delivery_staff"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      booking_items: {
+        Row: BookingItem;
+        Insert: Partial<BookingItem> &
+          Pick<BookingItem, "booking_id" | "description">;
+        Update: Partial<BookingItem>;
+        Relationships: [
+          {
+            foreignKeyName: "booking_items_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: false;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "booking_items_catalog_item_id_fkey";
+            columns: ["catalog_item_id"];
+            isOneToOne: false;
+            referencedRelation: "catalog_items";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "booking_items_package_id_fkey";
+            columns: ["package_id"];
+            isOneToOne: false;
+            referencedRelation: "backdrop_packages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       quotation_items: {
         Row: QuotationItem;
         Insert: Partial<QuotationItem> &
@@ -404,6 +585,17 @@ export type Database = {
       can_manage_catalog: { Args: Record<string, never>; Returns: boolean };
       can_manage_quotations: { Args: Record<string, never>; Returns: boolean };
       can_view_quotations: { Args: Record<string, never>; Returns: boolean };
+      can_manage_bookings: { Args: Record<string, never>; Returns: boolean };
+      can_touch_bookings: { Args: Record<string, never>; Returns: boolean };
+      booking_holds_stock: {
+        Args: { p_status: BookingStatus };
+        Returns: boolean;
+      };
+      /** Rental stock already spoken for across an overlapping window. */
+      reserved_quantities: {
+        Args: { p_from: string; p_to: string; p_exclude?: string | null };
+        Returns: { catalog_item_id: string; reserved_quantity: number }[];
+      };
       /** Reserves the next PREFIX-YYYY-#### under a row lock. */
       next_document_number: {
         Args: { p_prefix: string; p_year?: number };
@@ -420,6 +612,9 @@ export type Database = {
       payment_channel: PaymentChannel;
       quotation_status: QuotationStatus;
       quotation_line_type: QuotationLineType;
+      booking_status: BookingStatus;
+      booking_line_type: BookingLineType;
+      return_condition: ReturnCondition;
     };
     CompositeTypes: Record<string, never>;
   };

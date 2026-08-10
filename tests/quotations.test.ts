@@ -21,18 +21,22 @@ import {
 import {
   deliveryFeeCharged,
   deliveryFeeLabel,
+  documentTotals,
   isCalendarDate,
   lineTotal,
   linesSubtotal,
-  quotationTotals,
   validateLine,
+} from "@/lib/documents/totals";
+import {
   validateQuotation,
-  type LineDraft,
   type QuotationDraft,
-} from "@/lib/quotations/totals";
+  type QuotationLineDraft,
+} from "@/lib/quotations/validation";
 
 // ── Helpers ───────────────────────────────────────────────────
-function line(overrides: Partial<LineDraft> = {}): LineDraft {
+function line(
+  overrides: Partial<QuotationLineDraft> = {},
+): QuotationLineDraft {
   return {
     line_type: "rental",
     description: "Monoblock chair",
@@ -198,9 +202,9 @@ describe("deliveryFeeCharged", () => {
   });
 });
 
-describe("quotationTotals", () => {
+describe("documentTotals", () => {
   it("adds delivery after taking the discount off the goods", () => {
-    const totals = quotationTotals({
+    const totals = documentTotals({
       lines: [line({ quantity: 100, unit_price_centavos: 2_500 })], // ₱2,500.00
       within_free_delivery_area: false,
       delivery_fee_centavos: 50_000, // ₱500.00
@@ -217,7 +221,7 @@ describe("quotationTotals", () => {
   });
 
   it("computes the 50% downpayment off the final total", () => {
-    const totals = quotationTotals({
+    const totals = documentTotals({
       lines: [line({ quantity: 1, unit_price_centavos: 450_100 })],
       within_free_delivery_area: true,
       delivery_fee_centavos: 0,
@@ -231,7 +235,7 @@ describe("quotationTotals", () => {
   });
 
   it("honours a downpayment percentage other than the default", () => {
-    const totals = quotationTotals({
+    const totals = documentTotals({
       lines: [line({ quantity: 1, unit_price_centavos: 100_000 })],
       within_free_delivery_area: true,
       delivery_fee_centavos: 0,
@@ -243,7 +247,7 @@ describe("quotationTotals", () => {
   });
 
   it("zeroes the delivery fee inside the free area", () => {
-    const totals = quotationTotals({
+    const totals = documentTotals({
       lines: [line({ quantity: 1, unit_price_centavos: 100_000 })],
       within_free_delivery_area: true,
       delivery_fee_centavos: 50_000,
@@ -256,7 +260,7 @@ describe("quotationTotals", () => {
   });
 
   it("caps the general discount at the subtotal so the total stays positive", () => {
-    const totals = quotationTotals({
+    const totals = documentTotals({
       lines: [line({ quantity: 1, unit_price_centavos: 100_000 })],
       within_free_delivery_area: false,
       delivery_fee_centavos: 20_000,
@@ -269,7 +273,7 @@ describe("quotationTotals", () => {
   });
 
   it("reconciles to the centavo across a realistic mixed quotation", () => {
-    const totals = quotationTotals({
+    const totals = documentTotals({
       lines: [
         line({ quantity: 100, unit_price_centavos: 2_500 }), // chairs ₱2,500.00
         line({ quantity: 20, unit_price_centavos: 15_000 }), // tables ₱3,000.00

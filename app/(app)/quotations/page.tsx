@@ -10,7 +10,7 @@ import {
   QUOTATION_STATUS_LABELS,
   QUOTATION_STATUSES,
 } from "@/lib/quotations/status";
-import { quotationTotals } from "@/lib/quotations/totals";
+import { documentTotals } from "@/lib/documents/totals";
 import { createClient } from "@/lib/supabase/server";
 import { buttonClasses } from "@/components/ui/button";
 import { Banner } from "@/components/ui/card";
@@ -48,7 +48,7 @@ export default async function QuotationsPage({
   // computed status — otherwise "Expired" would match nothing and
   // "Sent" would list quotations that lapsed last week.
   const rows: QuotationRow[] = (data ?? []).map((quotation) => {
-    const totals = quotationTotals({
+    const totals = documentTotals({
       lines: quotation.quotation_items ?? [],
       within_free_delivery_area: quotation.within_free_delivery_area,
       delivery_fee_centavos: quotation.delivery_fee_centavos,

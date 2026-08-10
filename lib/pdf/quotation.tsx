@@ -5,8 +5,8 @@ import { formatPeso } from "@/lib/money";
 import {
   deliveryFeeLabel,
   lineTotal,
-  quotationTotals,
-} from "@/lib/quotations/totals";
+  documentTotals,
+} from "@/lib/documents/totals";
 import {
   QUOTATION_STATUS_LABELS,
   effectiveStatus,
@@ -62,7 +62,7 @@ export function QuotationDocument({
 }: QuotationDocumentData) {
   registerDocumentFonts();
 
-  const totals = quotationTotals({
+  const totals = documentTotals({
     lines: items,
     within_free_delivery_area: quotation.within_free_delivery_area,
     delivery_fee_centavos: quotation.delivery_fee_centavos,

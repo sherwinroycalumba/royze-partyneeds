@@ -3,23 +3,22 @@ import {
   multiplyCentavos,
   sumCentavos,
 } from "@/lib/money";
-import type { QuotationLineType } from "@/lib/supabase/database.types";
 
 /**
- * Quotation arithmetic (Spec 4.3).
+ * The money arithmetic every priced document shares (Spec 4.3, 4.4).
  *
- * Pure and dependency-free so the same numbers back the on-screen
- * builder, the saved record, and the PDF — a quotation that adds up
- * differently on paper than on screen is the bug this module exists
- * to make impossible. Bookings reuse it in Milestone 4, which is why
- * nothing here mentions quotations specifically.
+ * Quotations, bookings, and — later — orders all add up the same way:
+ * lines, then a whole-document discount, then the delivery fee, then
+ * the downpayment that confirms it. Keeping that in one pure module is
+ * what stops a quotation totalling differently from the booking it
+ * converts into, or from the PDF the customer is holding.
  */
 
 /**
  * The only fields the arithmetic needs.
  *
- * Kept separate from `LineDraft` so a list screen can total a
- * quotation from a query that selected just the money columns.
+ * Kept separate from `LineDraft` so a list screen can total a document
+ * from a query that selected just the money columns.
  */
 export type PricedLine = {
   quantity: number;
@@ -27,9 +26,8 @@ export type PricedLine = {
   line_discount_centavos: number;
 };
 
-/** A line as the builder and the PDF both see it. */
+/** A line as an editor and a document renderer both see it. */
 export type LineDraft = PricedLine & {
-  line_type: QuotationLineType;
   description: string;
 };
 
@@ -37,7 +35,7 @@ export type LineDraft = PricedLine & {
  * What one line is worth: quantity × unit price, less the line's own
  * discount. Never negative — a discount above the line's value is
  * rejected by `validateLine`, and clamped here as a backstop so a
- * malformed row cannot subtract from the rest of the quotation.
+ * malformed row cannot subtract from the rest of the document.
  */
 export function lineTotal(line: PricedLine): number {
   const gross = multiplyCentavos(line.unit_price_centavos, line.quantity);
@@ -64,16 +62,16 @@ export function deliveryFeeCharged(input: {
   return input.within_free_delivery_area ? 0 : input.delivery_fee_centavos;
 }
 
-export type QuotationTotalsInput = {
+export type DocumentTotalsInput = {
   lines: readonly PricedLine[];
   within_free_delivery_area: boolean;
   delivery_fee_centavos: number;
-  /** Whole-quotation discount, applied on top of per-line discounts. */
+  /** Whole-document discount, applied on top of per-line discounts. */
   discount_centavos: number;
   downpayment_percent: number;
 };
 
-export type QuotationTotals = {
+export type DocumentTotals = {
   subtotal_centavos: number;
   discount_centavos: number;
   delivery_fee_centavos: number;
@@ -83,15 +81,13 @@ export type QuotationTotals = {
 };
 
 /**
- * The figures printed on the quotation, in the order they are printed.
+ * The figures printed on the document, in the order they are printed.
  *
  * The general discount comes off the goods, not the delivery fee — the
  * fee is a cost the business incurs either way, and staff quote it as
  * a separate line for exactly that reason.
  */
-export function quotationTotals(
-  input: QuotationTotalsInput,
-): QuotationTotals {
+export function documentTotals(input: DocumentTotalsInput): DocumentTotals {
   const subtotal = linesSubtotal(input.lines);
   const discount = Math.min(Math.max(0, input.discount_centavos), subtotal);
   const delivery = deliveryFeeCharged(input);
@@ -157,39 +153,23 @@ export function validateLine(line: LineDraft, rowNumber: number): string | null 
   return null;
 }
 
-export type QuotationDraft = Omit<QuotationTotalsInput, "lines"> & {
-  lines: readonly LineDraft[];
-  customer_id: string;
-  issue_date: string;
-  valid_until: string;
-  delivery_fee_override_reason: string;
-};
-
 /**
- * The problem with a whole quotation, or null when it is ready to
- * save. Returns the first problem only — staff fix one thing at a
- * time, and a wall of errors on a phone is unreadable.
+ * The money checks every priced document runs: at least one line, every
+ * line sound, and the fee, discount, and percentage all sane.
+ *
+ * Returns the first problem only — staff fix one thing at a time, and a
+ * wall of errors on a phone is unreadable.
  */
-export function validateQuotation(draft: QuotationDraft): string | null {
-  if (!draft.customer_id) {
-    return "Choose the customer this quotation is for.";
-  }
-
+export function validateDocumentMoney(
+  draft: Omit<DocumentTotalsInput, "lines"> & { lines: readonly LineDraft[] },
+): string | null {
   if (draft.lines.length === 0) {
-    return "Add at least one item — an empty quotation has nothing to quote.";
+    return "Add at least one item — an empty document has nothing to price.";
   }
 
   for (const [index, line] of draft.lines.entries()) {
     const problem = validateLine(line, index + 1);
     if (problem) return problem;
-  }
-
-  if (!isCalendarDate(draft.issue_date) || !isCalendarDate(draft.valid_until)) {
-    return "Enter the dates as calendar dates.";
-  }
-
-  if (draft.valid_until < draft.issue_date) {
-    return "The validity date cannot be before the quotation date.";
   }
 
   if (

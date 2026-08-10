@@ -17,13 +17,14 @@ import {
 import {
   deliveryFeeLabel,
   lineTotal,
-  quotationTotals,
-} from "@/lib/quotations/totals";
+  documentTotals,
+} from "@/lib/documents/totals";
 import { createClient } from "@/lib/supabase/server";
 import { Badge, Banner, Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { buttonClasses } from "@/components/ui/button";
 import { StatusActions } from "../status-actions";
+import { ConvertToBookingButton } from "../convert-button";
 
 export const metadata: Metadata = { title: "Quotation" };
 
@@ -46,13 +47,21 @@ export default async function QuotationPage({
 
   if (!quotation) notFound();
 
-  const [{ data: items }, business] = await Promise.all([
+  const [{ data: items }, business, { data: booking }] = await Promise.all([
     supabase
       .from("quotation_items")
       .select("*")
       .eq("quotation_id", id)
       .order("sort_order", { ascending: true }),
     getBusinessSettings(),
+    // Set once this quotation has been converted (Spec 4.3).
+    quotation.converted_booking_id
+      ? supabase
+          .from("bookings")
+          .select("id, booking_number")
+          .eq("id", quotation.converted_booking_id)
+          .single()
+      : Promise.resolve({ data: null }),
   ]);
 
   const lines = items ?? [];
@@ -63,7 +72,7 @@ export default async function QuotationPage({
     today,
   );
 
-  const totals = quotationTotals({
+  const totals = documentTotals({
     lines,
     within_free_delivery_area: quotation.within_free_delivery_area,
     delivery_fee_centavos: quotation.delivery_fee_centavos,
@@ -147,12 +156,28 @@ export default async function QuotationPage({
 
       {status === "accepted" && (
         <Banner tone="success">
-          Accepted. {canConvertToBooking(status) && "Converting it to a booking arrives with the booking module."}
+          Accepted — convert it to a booking to reserve the items.
         </Banner>
+      )}
+
+      {booking && (
+        <p className="text-sm text-ink-600">
+          Converted to{" "}
+          <Link
+            href={`/bookings/${booking.id}`}
+            className="font-medium text-brand-700 underline underline-offset-2"
+          >
+            {booking.booking_number}
+          </Link>
+        </p>
       )}
 
       {canManage && (
         <StatusActions quotationId={quotation.id} status={status} />
+      )}
+
+      {canManage && !booking && canConvertToBooking(status) && (
+        <ConvertToBookingButton quotationId={quotation.id} />
       )}
 
       {/* ── Items ────────────────────────────────────────────── */}
