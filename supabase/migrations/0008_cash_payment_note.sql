@@ -13,4 +13,14 @@
 
 alter table public.business_settings
   add column if not exists cash_payment_note text not null
-    default 'On delivery or at the shop.';
+    default 'At the shop.';
+
+-- A column default only reaches rows created after it, so an install
+-- that already ran an earlier version of this file keeps the wording it
+-- was created with. Set it explicitly, guarded on the old text so a
+-- re-run cannot overwrite whatever the owner has since typed in
+-- Settings → Payment Channels.
+update public.business_settings
+   set cash_payment_note = 'At the shop.'
+ where id
+   and cash_payment_note = 'On delivery or at the shop.';
