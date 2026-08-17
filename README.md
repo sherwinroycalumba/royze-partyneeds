@@ -106,25 +106,25 @@ npx supabase db push
 npm run seed
 ```
 
-Creates the Owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD`, and — when
-`SEED_DEMO_USERS=true` — one demo account per role:
-
-| Email | Role |
-|---|---|
-| `booking@royzepartyneeds.com` | Booking Staff (catalog manager) |
-| `delivery@royzepartyneeds.com` | Delivery Staff |
-| `books@royzepartyneeds.com` | Bookkeeper |
+Creates the Owner from `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` — the only
+account the script creates. Staff accounts are made by the owner in
+*Settings → Users*, so no account ever exists with a password published in
+this repo.
 
 It also loads the known catalog — tents, tables, chairs, covers, karaoke,
 backdrop frames, draping, lights, and about fifteen sale items — plus four
 backdrop packages (Birthday Arch, Wedding Backdrop, Christening, Gender
-Reveal) with their bills of components. `SEED_DEMO_USERS=true` additionally
-adds sample customers and suppliers.
+Reveal) with their bills of components.
+
+No operating records are seeded: quotations, bookings, payments, orders, and
+expenses all start empty and are entered in the app. Set
+`SEED_SAMPLE_CONTACTS=true` if you want a few sample customers and suppliers
+while you learn the app.
 
 **Seeded prices are starting points.** Adjust them under *Price Catalog*;
 every change is recorded in the price history.
 
-Every seeded account is forced to set its own password at first sign-in.
+The seeded owner is forced to set its own password at first sign-in.
 Re-running the script skips anything that already exists, so it never
 overwrites a price the owner has since edited.
 
@@ -147,7 +147,7 @@ npm run dev      # http://localhost:3000
 | `npm run test:watch` | Tests in watch mode |
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run lint` | ESLint |
-| `npm run seed` | Seed owner, catalog, and — with `SEED_DEMO_USERS=true` — demo staff and a week of operations |
+| `npm run seed` | Seed the owner, the catalog, and — with `SEED_SAMPLE_CONTACTS=true` — sample customers and suppliers |
 | `npm run preview:pdf` | Render a sample quotation PDF to `.preview/` |
 
 ---
@@ -568,8 +568,9 @@ A VPS works equally well: `npm run build && npm start` behind a reverse proxy.
 npm run seed
 ```
 
-against the production environment, **without** `SEED_DEMO_USERS` — you do not
-want demo staff accounts or fake bookings in the real system.
+against the production environment, **without** `SEED_SAMPLE_CONTACTS` — the
+real system should start with the owner and the catalog only. Add the staff
+accounts afterwards in *Settings → Users*.
 
 ### 5. First-run checklist
 

@@ -5,15 +5,15 @@
  *
  * Creates the Owner account, the known price catalog, and the backdrop
  * packages, so the app is usable on first run. With
- * SEED_DEMO_USERS=true it also adds one account per role, sample
- * customers and suppliers, and a week of demo operations — a
- * quotation, a booking with payments, a quick sale, and expenses — so
- * the dashboard, calendar, and reports show something real instead of
- * eight empty tables.
+ * SEED_SAMPLE_CONTACTS=true it also adds a few sample customers and
+ * suppliers, so those two directories are not empty while the owner
+ * learns the app.
+ *
+ * No staff accounts and no operating records — quotations, bookings,
+ * payments, orders, and expenses are all entered in the app.
  *
  * Safe to re-run: anything already present is reported and left alone,
- * so a re-run never overwrites prices the owner has since adjusted,
- * nor duplicates the demo data.
+ * so a re-run never overwrites prices the owner has since adjusted.
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -576,296 +576,6 @@ async function seedSampleContacts(ownerId: string | null): Promise<void> {
   }
 }
 
-// ── Demo operating data (Spec 5) ──────────────────────────────
-/**
- * A quotation, two bookings, payments, a quick sale, and a few
- * expenses — enough that the dashboard, the calendar, and all eight
- * reports show something real on first run rather than eight empty
- * tables that teach the owner nothing.
- *
- * Dated relative to today so the demo never goes stale, and guarded on
- * the document counter so a re-run adds nothing.
- */
-
-/** `YYYY-MM-DD`, `days` from today, in Manila. */
-function dayOffset(days: number): string {
-  const now = new Date();
-  const manila = new Date(
-    now.toLocaleString("en-US", { timeZone: "Asia/Manila" }),
-  );
-  manila.setDate(manila.getDate() + days);
-  return manila.toISOString().slice(0, 10);
-}
-
-/** Manila wall-clock time on an offset day, as an ISO instant. */
-function instantOffset(days: number, hour: number): string {
-  return new Date(`${dayOffset(days)}T${String(hour).padStart(2, "0")}:00:00+08:00`).toISOString();
-}
-
-async function nextNumber(prefix: string): Promise<string> {
-  const { data, error } = await supabase.rpc("next_document_number", {
-    p_prefix: prefix,
-  });
-  if (error || !data) throw new Error(`numbering: ${error?.message}`);
-  return data;
-}
-
-async function seedDemoOperations(ownerId: string | null): Promise<void> {
-  // One booking is enough to tell whether this has run before.
-  const { count } = await supabase
-    .from("bookings")
-    .select("*", { count: "exact", head: true });
-
-  if ((count ?? 0) > 0) {
-    console.log("  • demo bookings already present, skipped");
-    return;
-  }
-
-  const { data: customers } = await supabase
-    .from("customers")
-    .select("id, name")
-    .order("name");
-  const { data: items } = await supabase
-    .from("catalog_items")
-    .select("id, name, is_rental, is_sale, rental_price_centavos, sale_price_centavos")
-    .eq("is_active", true);
-  const { data: packages } = await supabase
-    .from("backdrop_packages")
-    .select("id, name, package_price_centavos")
-    .eq("is_active", true);
-
-  if (!customers?.length || !items?.length) {
-    console.log("  • no customers or catalog yet, skipped");
-    return;
-  }
-
-  const customer = customers[0];
-  const secondCustomer = customers[1] ?? customers[0];
-  const rental = items.find((item) => item.is_rental);
-  const saleItem = items.find((item) => item.is_sale);
-  const backdrop = packages?.[0];
-
-  if (!rental || !saleItem) {
-    console.log("  • catalog has no rental or sale item, skipped");
-    return;
-  }
-
-  // ── A quotation that has been sent ──────────────────────────
-  const quotationNumber = await nextNumber("QT");
-  const { data: quotation, error: quotationError } = await supabase
-    .from("quotations")
-    .insert({
-      quotation_number: quotationNumber,
-      customer_id: secondCustomer.id,
-      status: "sent",
-      issue_date: dayOffset(-3),
-      valid_until: dayOffset(4),
-      event_date: dayOffset(21),
-      event_address: "Bancal, Meycauayan, Bulacan",
-      occasion: "Christening",
-      within_free_delivery_area: true,
-      downpayment_percent: 50,
-      notes: "Setup by 7:00 AM on the day.",
-      sent_at: new Date().toISOString(),
-      created_by: ownerId,
-    })
-    .select("id")
-    .single();
-
-  if (quotationError) throw new Error(`quotation: ${quotationError.message}`);
-
-  await supabase.from("quotation_items").insert([
-    {
-      quotation_id: quotation.id,
-      line_type: "rental",
-      catalog_item_id: rental.id,
-      description: rental.name,
-      quantity: 50,
-      unit_price_centavos: rental.rental_price_centavos,
-      sort_order: 0,
-    },
-  ]);
-
-  // ── A booking happening this week, half paid ────────────────
-  const bookingNumber = await nextNumber("BK");
-  const { data: booking, error: bookingError } = await supabase
-    .from("bookings")
-    .insert({
-      booking_number: bookingNumber,
-      customer_id: customer.id,
-      status: "confirmed",
-      event_date: dayOffset(3),
-      delivery_at: instantOffset(3, 8),
-      pickup_at: instantOffset(4, 9),
-      setup_at: backdrop ? instantOffset(3, 7) : null,
-      reserved_from: dayOffset(3),
-      reserved_to: dayOffset(4),
-      event_address: customer.name
-        ? "Blk 12 Lot 4, Deca Homes Meycauayan, Bulacan"
-        : "",
-      landmark: "Beside the covered court",
-      contact_person_name: "Ate Let",
-      contact_person_phone: "0918 222 3333",
-      occasion: "7th Birthday",
-      theme_motif: backdrop ? "Safari, sage green and cream" : "",
-      celebrant_name: backdrop ? "Sofia" : "",
-      within_free_delivery_area: true,
-      downpayment_percent: 50,
-      agreement_signed: true,
-      agreement_signed_at: new Date().toISOString(),
-      confirmed_at: new Date().toISOString(),
-      reserved_at: new Date().toISOString(),
-      notes: "Keep the driveway clear for the delivery tricycle.",
-      created_by: ownerId,
-    })
-    .select("id")
-    .single();
-
-  if (bookingError) throw new Error(`booking: ${bookingError.message}`);
-
-  const { data: bookingLines } = await supabase
-    .from("booking_items")
-    .insert(
-      [
-        {
-          booking_id: booking.id,
-          line_type: "rental" as const,
-          catalog_item_id: rental.id,
-          description: rental.name,
-          quantity: 100,
-          unit_price_centavos: rental.rental_price_centavos,
-          reserves_stock: true,
-          sort_order: 0,
-        },
-        ...(backdrop
-          ? [
-              {
-                booking_id: booking.id,
-                line_type: "package" as const,
-                package_id: backdrop.id,
-                description: backdrop.name,
-                quantity: 1,
-                unit_price_centavos: backdrop.package_price_centavos,
-                sort_order: 1,
-              },
-            ]
-          : []),
-      ],
-    )
-    .select("id, unit_price_centavos, quantity");
-
-  const bookingTotal = (bookingLines ?? []).reduce(
-    (sum, line) => sum + line.unit_price_centavos * line.quantity,
-    0,
-  );
-
-  // Half verified, and a second payment still waiting on the owner —
-  // which is what makes the verification queue worth looking at.
-  await supabase.from("payments").insert([
-    {
-      booking_id: booking.id,
-      paid_on: dayOffset(-2),
-      amount_centavos: Math.round(bookingTotal / 2),
-      method: "cash",
-      status: "verified",
-      verified_by: ownerId,
-      verified_at: new Date().toISOString(),
-      recorded_by: ownerId,
-    },
-    {
-      booking_id: booking.id,
-      paid_on: dayOffset(0),
-      amount_centavos: 100_000,
-      method: "gcash",
-      reference_number: "0012345678",
-      status: "pending",
-      recorded_by: ownerId,
-    },
-  ]);
-
-  // ── A quick sale, paid in cash ──────────────────────────────
-  const orderNumber = await nextNumber("OR");
-  const { data: order } = await supabase
-    .from("orders")
-    .insert({
-      order_number: orderNumber,
-      customer_label: "Walk-in",
-      status: "completed",
-      sold_on: dayOffset(-1),
-      sold_by: ownerId,
-    })
-    .select("id")
-    .single();
-
-  if (order) {
-    await supabase.from("order_items").insert({
-      order_id: order.id,
-      catalog_item_id: saleItem.id,
-      description: saleItem.name,
-      quantity: 3,
-      unit_price_centavos: saleItem.sale_price_centavos,
-      sort_order: 0,
-    });
-
-    await supabase.from("payments").insert({
-      order_id: order.id,
-      paid_on: dayOffset(-1),
-      amount_centavos: saleItem.sale_price_centavos * 3,
-      method: "cash",
-      status: "verified",
-      verified_by: ownerId,
-      verified_at: new Date().toISOString(),
-      recorded_by: ownerId,
-    });
-  }
-
-  // ── Expenses, one of them an overdue payable ────────────────
-  const { data: suppliers } = await supabase
-    .from("suppliers")
-    .select("id, name")
-    .limit(2);
-
-  await supabase.from("expenses").insert([
-    {
-      expense_date: dayOffset(-5),
-      payee: suppliers?.[0]?.name ?? "Divisoria Balloon Supply",
-      supplier_id: suppliers?.[0]?.id ?? null,
-      category: "Purchases / Restock",
-      amount_centavos: 250_000,
-      method: "cash",
-      is_paid: true,
-      paid_on: dayOffset(-5),
-      recorded_by: ownerId,
-    },
-    {
-      expense_date: dayOffset(-2),
-      payee: "Petron Meycauayan",
-      category: "Fuel & Delivery",
-      amount_centavos: 60_000,
-      method: "cash",
-      is_paid: true,
-      paid_on: dayOffset(-2),
-      recorded_by: ownerId,
-    },
-    {
-      // Deliberately overdue, so the payables queue and the dashboard
-      // both have something to show.
-      expense_date: dayOffset(-20),
-      payee: suppliers?.[1]?.name ?? "Meycauayan Tent & Steel Works",
-      supplier_id: suppliers?.[1]?.id ?? null,
-      category: "Repairs",
-      amount_centavos: 180_000,
-      is_paid: false,
-      due_date: dayOffset(-6),
-      recorded_by: ownerId,
-    },
-  ]);
-
-  console.log(
-    `  ✓ ${quotationNumber}, ${bookingNumber}, ${orderNumber}, and 3 expenses added`,
-  );
-}
-
 /** The Owner's profile id, stamped as `created_by` on seeded records. */
 async function findOwnerId(email: string): Promise<string | null> {
   const { data } = await supabase
@@ -886,6 +596,8 @@ async function main(): Promise<void> {
   const ownerPassword = required("SEED_OWNER_PASSWORD");
   const ownerEmail = required("SEED_OWNER_EMAIL");
 
+  // The Owner only. Staff accounts are created by the owner in
+  // Settings → Users, so nobody can sign in with a published password.
   console.log("\nAccounts");
   await seedUser({
     email: ownerEmail,
@@ -894,46 +606,19 @@ async function main(): Promise<void> {
     role: "owner",
   });
 
-  if (process.env.SEED_DEMO_USERS === "true") {
-    const demoPassword = process.env.SEED_DEMO_PASSWORD || "Demo!2026";
-
-    await seedUser({
-      email: "booking@royzepartyneeds.com",
-      password: demoPassword,
-      fullName: "Bea Booking",
-      role: "booking_staff",
-      catalogManager: true,
-    });
-    await seedUser({
-      email: "delivery@royzepartyneeds.com",
-      password: demoPassword,
-      fullName: "Dario Delivery",
-      role: "delivery_staff",
-    });
-    await seedUser({
-      email: "books@royzepartyneeds.com",
-      password: demoPassword,
-      fullName: "Bella Books",
-      role: "bookkeeper",
-    });
-  }
-
   const ownerId = await findOwnerId(ownerEmail);
 
   console.log("\nPrice catalog");
   await seedCatalog(ownerId);
   await seedPackages(ownerId);
 
-  if (process.env.SEED_DEMO_USERS === "true") {
+  if (process.env.SEED_SAMPLE_CONTACTS === "true") {
     console.log("\nSample contacts");
     await seedSampleContacts(ownerId);
-
-    console.log("\nDemo operations");
-    await seedDemoOperations(ownerId);
   }
 
   console.log(
-    "\nDone. Every seeded account must change its password at first sign-in.",
+    "\nDone. The seeded owner must change its password at first sign-in.",
   );
   console.log(
     "Catalog prices are starting points — adjust them under Price Catalog.\n",
