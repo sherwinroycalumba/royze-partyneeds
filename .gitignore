@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# The template holds placeholders only — no secrets — and is the one
+# place that documents which variables the app needs.
+!.env.example
 
 # vercel
 .vercel
