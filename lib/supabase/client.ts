@@ -3,6 +3,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 
 import type { Database } from "./database.types";
+import { supabasePublishableKey, supabaseUrl } from "./env";
 
 /**
  * Browser Supabase client. Used only for interactive auth calls that
@@ -11,7 +12,7 @@ import type { Database } from "./database.types";
  */
 export function createClient() {
   return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    supabaseUrl(),
+    supabasePublishableKey(),
   );
 }

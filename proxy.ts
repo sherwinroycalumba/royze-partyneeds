@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+import { supabasePublishableKey, supabaseUrl } from "@/lib/supabase/env";
+
 /**
  * Next 16 renamed Middleware to Proxy. Runs on the Node.js runtime.
  *
@@ -26,9 +28,12 @@ function isPublic(pathname: string): boolean {
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  // Validated rather than `!`-asserted: the Proxy runs on every
+  // request, so a missing variable throws before any page renders
+  // and the platform reports a bare 500. The named error says which.
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    supabaseUrl(),
+    supabasePublishableKey(),
     {
       cookies: {
         getAll() {
